@@ -8,5 +8,8 @@ Provides detailed system stats (like kernel version, CPU, memory, disk, network,
 ```bash
 git clone https://github.com/Adhvay0505/LinWatch.git
 cd LinWatch
+```
+## Make the script executable and run it
+```bash
 chmod +x linwatch.sh
 ./linwatch.sh
