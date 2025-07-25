@@ -61,6 +61,19 @@ echo ""
 # Network Info
 echo -e "${CYAN}Network Info:${NC}"
 ip a | awk '/inet / && $2 !~ /^127/{sub("/.*", "", $2); print "IPV4: " $2} /inet6 / && $2 !~ /^::1/ {sub("/.*", "", $2); print "IPV6: " $2}'
+
+# Fetch and Display Public IP (Requires internet connection)
+if command -v curl >/dev/null 2>&1; then
+    PUBLIC_IP=$(curl -s https://api.ipify.org)
+    if [[ -n "$PUBLIC_IP" ]]; then
+        echo -e "${CYAN}Public IP:${NC} $PUBLIC_IP"
+    else
+        echo -e "${RED}Public IP: Unable to fetch (no internet?)${NC}"
+    fi
+else
+    echo -e "${RED}curl not installed. Cannot fetch public IP.${NC}"
+fi
+
 echo ""
 
 # Logged in users
