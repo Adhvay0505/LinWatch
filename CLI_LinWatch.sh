@@ -86,6 +86,20 @@ echo -e "${CYAN}Current User:${NC}"
 whoami
 echo ""
 
+# Open Ports
+echo -e "${CYAN}Open Network Ports:${NC}"
+if command -v ss >/dev/null 2>&1; then
+    # Modern systems
+    ss -tulpn | grep LISTEN
+elif command -v netstat >/dev/null 2>&1; then
+    # Fallback for older systems
+    netstat -tulpn | grep LISTEN
+else
+    echo -e "${RED}Neither 'ss' nor 'netstat' is installed. Unable to list open ports.${NC}"
+fi
+echo ""
+
+
 # Detect the OS/Distro
 DISTRO=$(awk -F= '/^ID=/{print $2}' /etc/os-release | tr -d ' "')
 echo -e "${CYAN}Detected Distro:${NC} ${DISTRO}"
