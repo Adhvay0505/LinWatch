@@ -7,16 +7,19 @@ CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Variable to track if updates were installed
+UPDATES_INSTALLED=false
+
 # Header
 cat << "EOF"
 
 
-██      ██ ███    ██ ██     ██  █████  ████████  ██████ ██   ██ 
+██      ██ ███    ██ ██     ██  █████  ████████  ██████ ██   ██
 ██      ██ ████   ██ ██     ██ ██   ██    ██    ██      ██   ██
 ██      ██ ██ ██  ██ ██  █  ██ ███████    ██    ██      ███████
 ██      ██ ██  ██ ██ ██ ███ ██ ██   ██    ██    ██      ██   ██
 ███████ ██ ██   ████  ███ ███  ██   ██    ██     ██████ ██   ██
-                                                                
+
 
 EOF
 echo ""
@@ -240,15 +243,9 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
                 echo -e "${CYAN}For Gentoo, please run manually:${NC} sudo emerge -uDNav @world"
             fi
 
-            #once updates compelete, ask the user to reboot the system
-            echo -ne "${CYAN}Updates are complete, do you wish to reboot the system now? (Y/N): ${NC}"
-            read -r REBOOT_RESPONSE
-            if [[ "$REBOOT_RESPONSE" =~ ^[Yy]$ ]]; then
-                echo -e "${GREEN}Rebooting system...${NC}"
-                sudo reboot
-            else
-                echo -e "${GREEN}Reboot skipped...${NC}"
-            fi
+            # Mark that updates were installed
+            UPDATES_INSTALLED=true
+            echo -e "${GREEN}Updates installed successfully!${NC}"
 
         else
             echo -e "${GREEN}Update installation skipped.${NC}"
@@ -275,51 +272,51 @@ echo ""
 # Function to install security tools
 install_security_tools() {
     echo -e "${YELLOW}Installing security tools (rkhunter and chkrootkit)...${NC}"
-    
+
     if command -v apt >/dev/null 2>&1; then
         sudo apt update -qq
         sudo apt install -y rkhunter chkrootkit 2>/dev/null
-        
+
     elif command -v dnf >/dev/null 2>&1; then
         sudo dnf install -y rkhunter chkrootkit 2>/dev/null
-        
+
     elif command -v yum >/dev/null 2>&1; then
         sudo yum install -y rkhunter chkrootkit 2>/dev/null
-        
+
     elif command -v pacman >/dev/null 2>&1; then
         sudo pacman -S --noconfirm rkhunter chkrootkit 2>/dev/null
-        
+
     elif command -v zypper >/dev/null 2>&1; then
         sudo zypper install -y rkhunter chkrootkit 2>/dev/null
-        
+
     elif command -v apk >/dev/null 2>&1; then
         sudo apk add rkhunter chkrootkit 2>/dev/null
-        
+
     elif command -v emerge >/dev/null 2>&1; then
         sudo emerge --quiet app-forensics/rkhunter app-forensics/chkrootkit 2>/dev/null
-        
+
     else
         echo -e "${RED}Package manager not recognized. Cannot install security tools.${NC}"
         return 1
     fi
-    
+
     echo -e "${GREEN}Security tools installed successfully!${NC}"
 }
 
 # Function to perform security audit
 perform_security_audit() {
     AUDIT_FILE="linwatch-security-audit-$(date +%Y%m%d-%H%M%S).md"
-    
+
     echo -e "${GREEN}Performing security audit...${NC}"
     echo -e "${YELLOW}This may take several minutes. Audit report will be saved to: $AUDIT_FILE${NC}"
     echo ""
-    
+
     # Start markdown report
     cat > "$AUDIT_FILE" << EOF
 # Linwatch Security Audit Report
-**Generated:** $(date)  
-**Hostname:** $(hostname)  
-**Kernel:** $(uname -r)  
+**Generated:** $(date)
+**Hostname:** $(hostname)
+**Kernel:** $(uname -r)
 **Distribution:** $DISTRO
 
 ---
@@ -329,11 +326,11 @@ EOF
     # Check if security tools are installed
     RKHUNTER_INSTALLED=false
     CHKROOTKIT_INSTALLED=false
-    
+
     if command -v rkhunter >/dev/null 2>&1; then
         RKHUNTER_INSTALLED=true
     fi
-    
+
     if command -v chkrootkit >/dev/null 2>&1; then
         CHKROOTKIT_INSTALLED=true
     fi
@@ -354,13 +351,13 @@ EOF
     grep -E '/bin/(bash|sh|zsh|fish)' /etc/passwd >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     echo "### Users with UID 0 (Root Privileges)" >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     awk -F: '($3 == 0) {print $1}' /etc/passwd >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     echo "### Accounts Without Passwords" >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     sudo awk -F: '($2 == "" ) {print $1}' /etc/shadow 2>/dev/null >> "$AUDIT_FILE" || echo "Permission denied" >> "$AUDIT_FILE"
@@ -379,7 +376,7 @@ EOF
     fi
     echo '```' >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     echo "### Active Network Connections" >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     if command -v ss >/dev/null 2>&1; then
@@ -393,7 +390,7 @@ EOF
     # Section 4: Firewall Status
     echo "## 4. Firewall Status" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     if command -v ufw >/dev/null 2>&1; then
         echo "### UFW Status" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
@@ -436,7 +433,7 @@ EOF
     sudo find / -perm -4000 -type f 2>/dev/null | head -20 >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     echo "### World-Writable Files (First 20)" >> "$AUDIT_FILE"
     echo '```' >> "$AUDIT_FILE"
     sudo find / -xdev -type f -perm -0002 2>/dev/null | head -20 >> "$AUDIT_FILE"
@@ -491,19 +488,19 @@ EOF
     # Section 11: Recommendations
     echo "## 11. Security Recommendations" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     RECOMMENDATIONS=()
-    
+
     # Check SSH root login
     if grep -q "^PermitRootLogin yes" /etc/ssh/sshd_config 2>/dev/null; then
         RECOMMENDATIONS+=("- ⚠️ **Disable SSH root login:** Set \`PermitRootLogin no\` in /etc/ssh/sshd_config")
     fi
-    
+
     # Check password authentication
     if grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config 2>/dev/null; then
         RECOMMENDATIONS+=("- ⚠️ **Consider disabling SSH password authentication:** Use key-based authentication only")
     fi
-    
+
     # Check firewall
     FIREWALL_ACTIVE=false
     if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
@@ -511,25 +508,25 @@ EOF
     elif command -v firewall-cmd >/dev/null 2>&1 && sudo firewall-cmd --state 2>/dev/null | grep -q "running"; then
         FIREWALL_ACTIVE=true
     fi
-    
+
     if [ "$FIREWALL_ACTIVE" = false ]; then
         RECOMMENDATIONS+=("- ⚠️ **Enable firewall:** Configure ufw, firewalld, or iptables")
     fi
-    
+
     # Check if security tools are installed
     if [ "$RKHUNTER_INSTALLED" = false ]; then
         RECOMMENDATIONS+=("- 💡 **Install rkhunter:** Rootkit detection tool")
     fi
-    
+
     if [ "$CHKROOTKIT_INSTALLED" = false ]; then
         RECOMMENDATIONS+=("- 💡 **Install chkrootkit:** Additional rootkit scanning")
     fi
-    
+
     RECOMMENDATIONS+=("- 💡 **Keep system updated:** Regularly run system updates")
     RECOMMENDATIONS+=("- 💡 **Review user accounts:** Remove unused accounts and check privileges")
     RECOMMENDATIONS+=("- 💡 **Monitor logs:** Regularly check /var/log/auth.log or /var/log/secure")
     RECOMMENDATIONS+=("- 💡 **Use strong passwords:** Enforce password complexity policies")
-    
+
     if [ ${#RECOMMENDATIONS[@]} -eq 0 ]; then
         echo "✅ No immediate recommendations. System appears well-configured." >> "$AUDIT_FILE"
     else
@@ -537,13 +534,13 @@ EOF
             echo "$rec" >> "$AUDIT_FILE"
         done
     fi
-    
+
     echo "" >> "$AUDIT_FILE"
-    
+
     # Footer
     echo "---" >> "$AUDIT_FILE"
     echo "*Report generated by Linwatch Security Audit*" >> "$AUDIT_FILE"
-    
+
     echo -e "${GREEN}✓ Security audit complete!${NC}"
     echo -e "${GREEN}Report saved to: ${CYAN}$AUDIT_FILE${NC}"
     echo ""
@@ -554,36 +551,55 @@ echo -ne "${CYAN}Would you like to perform a security audit? (y/n): ${NC}"
 read -r SECURITY_RESPONSE
 
 if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
-    
+
     # Check if tools are installed
     TOOLS_MISSING=false
-    
+
     if ! command -v rkhunter >/dev/null 2>&1; then
         TOOLS_MISSING=true
         echo -e "${YELLOW}rkhunter is not installed.${NC}"
     fi
-    
+
     if ! command -v chkrootkit >/dev/null 2>&1; then
         TOOLS_MISSING=true
         echo -e "${YELLOW}chkrootkit is not installed.${NC}"
     fi
-    
+
     if [ "$TOOLS_MISSING" = true ]; then
         echo -ne "${CYAN}Would you like to install missing security tools? (y/n): ${NC}"
         read -r INSTALL_TOOLS
-        
+
         if [[ "$INSTALL_TOOLS" =~ ^[Yy]$ ]]; then
             install_security_tools
             echo ""
         fi
     fi
-    
+
     # Perform the audit
     perform_security_audit
-    
+
 else
     echo -e "${GREEN}Security audit skipped.${NC}"
 fi
 
 echo ""
+
+#============================================================================
+# REBOOT PROMPT (After everything is complete)
+#============================================================================
+
+# Now ask about reboot if updates were installed
+if [ "$UPDATES_INSTALLED" = true ]; then
+    echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
+    echo -ne "${CYAN}Updates were installed. Do you wish to reboot the system now? (y/n): ${NC}"
+    read -r REBOOT_RESPONSE
+    if [[ "$REBOOT_RESPONSE" =~ ^[Yy]$ ]]; then
+        echo -e "${GREEN}Rebooting system...${NC}"
+        sudo reboot
+    else
+        echo -e "${YELLOW}Reboot skipped. Please remember to reboot later to apply all updates.${NC}"
+    fi
+    echo ""
+fi
+
 echo -e "${GREEN}Linwatch complete!${NC}"
