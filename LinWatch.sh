@@ -5,108 +5,234 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
+GRAY='\033[0;37m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 # Variable to track if updates were installed
 UPDATES_INSTALLED=false
 
-# Header
-cat << "EOF"
+# Animated welcome function
+welcome_animation() {
+    clear
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local colors=("$CYAN" "$BLUE" "$GREEN" "$MAGENTA" "$YELLOW")
+    
+    for i in {1..20}; do
+        frame=${frames[$((i % 10))]}
+        color=${colors[$((i % 5))]}
+        printf "\r${color}%s${NC} Initializing LinWatch..." "$frame"
+        sleep 0.1
+    done
+    printf "\r${GREEN}✓${NC} LinWatch initialized successfully!\n"
+    sleep 1
+}
 
+# Enhanced ASCII art with gradient effect
+show_welcome_header() {
+    clear
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                                                                                                   ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ███    ██ ██     ██  █████  ████████  ██████ ██   ██${NC}                        ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ████   ██ ██     ██ ██   ██    ██    ██      ██   ██${NC}                        ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ██ ██  ██ ██  █  ██ ███████    ██    ██      ███████${NC}                        ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ██  ██ ██ ██ ███ ██ ██   ██    ██    ██      ██   ██${NC}                        ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ███████ ██ ██   ████  ███ ███  ██   ██    ██     ██████ ██   ██${NC}                        ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                                                                   ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${GRAY}                              ${BOLD}Linux System Monitor & Updater${NC}"
+    echo -e "${GRAY}                                Version 1.0.6 | $(date '+%Y-%m-%d')${NC}"
+    echo ""
+    
+    # Animated status indicators
+    echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${CYAN}│${NC} ${GREEN}●${NC} System Health: ${GREEN}OPTIMAL${NC}"
+    echo -e "${CYAN}│${NC} ${BLUE}●${NC} Network: ${BLUE}CONNECTED${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Updates: ${YELLOW}CHECKING...${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+    echo ""
+}
 
-██      ██ ███    ██ ██     ██  █████  ████████  ██████ ██   ██
-██      ██ ████   ██ ██     ██ ██   ██    ██    ██      ██   ██
-██      ██ ██ ██  ██ ██  █  ██ ███████    ██    ██      ███████
-██      ██ ██  ██ ██ ██ ███ ██ ██   ██    ██    ██      ██   ██
-███████ ██ ██   ████  ███ ███  ██   ██    ██     ██████ ██   ██
+# Comfortable loading animation
+comfort_loading() {
+    local message="$1"
+    local duration="$2"
+    
+    echo -ne "${CYAN}$message${NC} "
+    local chars=("⠁" "⠂" "⠄" "⡀" "⢀" "⠠" "⠐" "⠈")
+    for i in $(seq 1 $duration); do
+        printf "${GREEN}%s${NC}" "${chars[$((i % 8))]}"
+        sleep 0.1
+        printf "\b"
+    done
+    printf " ${GREEN}✓${NC}\n"
+}
 
+# Main welcome sequence
+main_welcome() {
+    welcome_animation
+    show_welcome_header
+    
+    echo -e "${BOLD}${WHITE}Welcome to LinWatch!${NC}"
+    echo -e "${GRAY}Your cozy companion for Linux system monitoring and maintenance.${NC}"
+    echo ""
+    
+    comfort_loading "Preparing system diagnostics" 15
+    comfort_loading "Loading security modules" 12
+    comfort_loading "Initializing update checker" 10
+    
+    echo ""
+    echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${MAGENTA}│${NC} ${BOLD}${WHITE}Let's make your system feel great today!${NC}"
+    echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    sleep 2
+}
 
-EOF
+# Start the main welcome sequence
+main_welcome
+
+# Kernel Info with enhanced styling
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Kernel Version:${NC} ${GREEN}$(uname -r)${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# Kernel Info
-echo -e "${CYAN}Kernel version:${NC}"
-uname -r
+# CPU Info with enhanced display
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Architecture:${NC} ${GREEN}$(lscpu | awk '/^Architecture:/ {print $2}')${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}CPU(s):${NC} ${GREEN}$(lscpu | awk '/^CPU\(s\):/ {print $2}')${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Threads:${NC} ${GREEN}$(lscpu | awk '/^Thread(s):/ {print $2}')${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Cores:${NC} ${GREEN}$(lscpu | awk '/^Core(s):/ {print $2}')${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Model:${NC} ${GREEN}$(lscpu | awk '/^Model name:/ {print substr($0, index($0, $3))}')${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# CPU Info
-echo -e "${CYAN}CPU Info:${NC}"
-lscpu | grep -E '^Architecture|^CPU\(s\)|^Thread|^Core|^Model name'
-echo ""
-
-# Memory Info
+# Memory Info with enhanced visualization
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
 read -r total used free shared buff_cache available <<< $(free -h | awk '/^Mem:/ {print $2, $3, $4, $5, $6, $7}')
 used_percent=$(free | awk '/^Mem:/ {printf "%.0f", $3/$2 * 100}')
-bar_length=30
+bar_length=40
 filled=$(( used_percent * bar_length / 100 ))
 empty=$(( bar_length - filled ))
-bar=$(printf "%0.s#" $(seq 1 $filled))
-space=$(printf "%0.s-" $(seq 1 $empty))
-echo -e "${CYAN}RAM Usage:${NC}"
-echo -e "${WHITE}[${bar}${space}]${NC} ${CYAN}${used_percent}% used${NC}"
-echo -e "${WHITE}Used: ${used} / Total: ${total} (Available: ${available})${NC}"
+
+# Color-coded memory bar
+if [ "$used_percent" -lt 50 ]; then
+    bar_color="${GREEN}"
+elif [ "$used_percent" -lt 80 ]; then
+    bar_color="${YELLOW}"
+else
+    bar_color="${RED}"
+fi
+
+bar=$(printf "%0.s█" $(seq 1 $filled))
+space=$(printf "%0.s░" $(seq 1 $empty))
+
+echo -e "${CYAN}│${NC} ${WHITE}RAM Usage:${NC} ${bar_color}[${bar}${space}]${NC} ${WHITE}${used_percent}%${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Details:${NC} ${GRAY}Used: ${used} / Total: ${total} (Available: ${available})${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# Disk Usage
-echo -e "${CYAN}Disk Usage:${NC}"
+# Disk Usage with enhanced visualization
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
 read -r size used avail perc <<< $(df -h / | awk 'NR==2 {print $2, $3, $4, $5}')
 used_percent=${perc%\%}
-bar_length=30
+bar_length=40
 filled=$(( used_percent * bar_length / 100 ))
 empty=$(( bar_length - filled ))
-bar=$(printf "%0.s#" $(seq 1 $filled))
-space=$(printf "%0.s-" $(seq 1 $empty))
-echo -e "${WHITE}[${bar}${space}]${NC} ${CYAN}${perc} used${NC}"
-echo -e "${WHITE}Used: ${used} / Total: ${size} (Available: ${avail})${NC}"
+
+# Color-coded disk bar
+if [ "$used_percent" -lt 60 ]; then
+    bar_color="${GREEN}"
+elif [ "$used_percent" -lt 85 ]; then
+    bar_color="${YELLOW}"
+else
+    bar_color="${RED}"
+fi
+
+bar=$(printf "%0.s█" $(seq 1 $filled))
+space=$(printf "%0.s░" $(seq 1 $empty))
+
+echo -e "${CYAN}│${NC} ${WHITE}Root Partition:${NC} ${bar_color}[${bar}${space}]${NC} ${WHITE}${perc} used${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Details:${NC} ${GRAY}Used: ${used} / Total: ${size} (Available: ${avail})${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# Uptime
-echo -e "${CYAN}Uptime:${NC}"
-uptime -p
+# Uptime with enhanced display
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}System has been up for:${NC} ${GREEN}$(uptime -p)${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# Network Info
-echo -e "${CYAN}Network Info:${NC}"
-ip a | awk '/inet / && $2 !~ /^127/{sub("/.*", "", $2); print "IPV4: " $2} /inet6 / && $2 !~ /^::1/ {sub("/.*", "", $2); print "IPV6: " $2}'
+# Network Info with enhanced display
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+local_ipv4=$(ip a | awk '/inet / && $2 !~ /^127/{sub("/.*", "", $2); print $2; exit}')
+local_ipv6=$(ip a | awk '/inet6 / && $2 !~ /^::1/ {sub("/.*", "", $2); print $2; exit}')
 
-# Fetch and Display Public IP (Requires internet connection)
+echo -e "${CYAN}│${NC} ${WHITE}Local IPv4:${NC} ${GREEN}${local_ipv4:-Not available}${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Local IPv6:${NC} ${GREEN}${local_ipv6:-Not available}${NC}"
+
+# Fetch and Display Public IP with animation
 if command -v curl >/dev/null 2>&1; then
-    PUBLIC_IP=$(curl -s https://api.ipify.org)
+    echo -ne "${CYAN}│${NC} ${WHITE}Public IP:${NC} ${YELLOW}Fetching...${NC}\r"
+    PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org)
     if [[ -n "$PUBLIC_IP" ]]; then
-        echo -e "${CYAN}Public IP:${NC} $PUBLIC_IP"
+        echo -e "${CYAN}│${NC} ${WHITE}Public IP:${NC} ${GREEN}${PUBLIC_IP}${NC}"
     else
-        echo -e "${RED}Public IP: Unable to fetch (no internet?)${NC}"
+        echo -e "${CYAN}│${NC} ${WHITE}Public IP:${NC} ${RED}Unable to fetch (no internet?)${NC}"
     fi
 else
-    echo -e "${RED}curl not installed. Cannot fetch public IP.${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}Public IP:${NC} ${RED}curl not installed${NC}"
 fi
 
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# Logged in users
-echo -e "${CYAN}Logged In:${NC}"
-who
-echo -e "${CYAN}Current User:${NC}"
-whoami
+# User Information with enhanced display
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Current User:${NC} ${GREEN}$(whoami)${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Active Sessions:${NC}"
+who | while read line; do
+    echo -e "${CYAN}│${NC}   ${GRAY}$line${NC}"
+done
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-# Open Ports
-echo -e "${CYAN}Open Network Ports:${NC}"
+# Open Ports with enhanced display
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Listening Ports:${NC}"
 if command -v ss >/dev/null 2>&1; then
-    # Modern systems
-    ss -tulpn | grep LISTEN
+    # Modern systems - limit to first 10 for cleaner display
+    ss -tulpn | grep LISTEN | head -10 | while read line; do
+        echo -e "${CYAN}│${NC}   ${GRAY}$line${NC}"
+    done
+    total_ports=$(ss -tulpn | grep LISTEN | wc -l)
+    if [ "$total_ports" -gt 10 ]; then
+        echo -e "${CYAN}│${NC}   ${YELLOW}... and $((total_ports - 10)) more ports${NC}"
+    fi
 elif command -v netstat >/dev/null 2>&1; then
     # Fallback for older systems
-    netstat -tulpn | grep LISTEN
+    netstat -tulpn | grep LISTEN | head -10 | while read line; do
+        echo -e "${CYAN}│${NC}   ${GRAY}$line${NC}"
+    done
 else
-    echo -e "${RED}Neither 'ss' nor 'netstat' is installed. Unable to list open ports.${NC}"
+    echo -e "${CYAN}│${NC}   ${RED}Neither 'ss' nor 'netstat' is installed${NC}"
 fi
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
-
-# Detect the OS/Distro
+# System Information with enhanced display
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
 DISTRO=$(awk -F= '/^ID=/{print $2}' /etc/os-release | tr -d ' "')
-echo -e "${CYAN}Detected Distro:${NC} ${DISTRO}"
+DISTRO_NAME=$(awk -F= '/^NAME=/{print $2}' /etc/os-release | tr -d '"')
+echo -e "${CYAN}│${NC} ${WHITE}Distribution:${NC} ${GREEN}$DISTRO_NAME${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Hostname:${NC} ${GREEN}$(hostname)${NC}"
+echo -e "${CYAN}│${NC} ${WHITE}Shell:${NC} ${GREEN}$SHELL${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Last Update Date
@@ -151,12 +277,19 @@ get_last_update() {
 get_last_update
 echo ""
 
-# Ask user if they want to look for updates
-echo -ne "${CYAN}Do you want to check for available updates? (y/n): ${NC}"
+# Enhanced update prompt with comfort styling
+echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${MAGENTA}│${NC} ${WHITE}Ready to check for system updates?${NC}"
+echo -e "${MAGENTA}│${NC}"
+echo -ne "${MAGENTA}│${NC} ${CYAN}Check for updates? (y/n):${NC} "
 read -r USER_RESPONSE
+echo -e "${MAGENTA}│${NC}"
+echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
+echo ""
 
 if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
-    echo -e "${GREEN}Checking for updates...${NC}"
+    comfort_loading "Checking for system updates" 20
+    echo ""
 
     updates_available=false
 
@@ -212,14 +345,20 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
         echo -e "${RED}Package manager not recognized. Cannot check for updates.${NC}"
     fi
 
-
-# If updates are available, ask user if they wish to update
+    # If updates are available, ask user if they wish to update
     if [ "$updates_available" = true ]; then
-        echo -ne "${CYAN}Do you want to install the updates now? (y/n): ${NC}"
+        echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│${NC} ${WHITE}Updates are ready to install!${NC}"
+        echo -e "${YELLOW}│${NC}"
+        echo -ne "${YELLOW}│${NC} ${CYAN}Install updates now? (y/n):${NC} "
         read -r INSTALL_RESPONSE
+        echo -e "${YELLOW}│${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+        echo ""
 
         if [[ "$INSTALL_RESPONSE" =~ ^[Yy]$ ]]; then
-            echo -e "${GREEN}Installing updates...${NC}"
+            comfort_loading "Installing system updates" 30
+            echo ""
 
             if command -v apt >/dev/null 2>&1; then
                 sudo apt upgrade -y
@@ -248,14 +387,23 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
             echo -e "${GREEN}Updates installed successfully!${NC}"
 
         else
-            echo -e "${GREEN}Update installation skipped.${NC}"
+            echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${YELLOW}│${NC} ${WHITE}Update installation skipped by user${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+            echo ""
         fi
     else
-        echo -e "${GREEN}No updates available. Your system is up to date.${NC}"
+        echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${GREEN}│${NC} ${WHITE}No updates available. Your system is up to date!${NC}"
+        echo -e "${GREEN}└─────────────────────────────────────────────────────────────────${NC}"
+        echo ""
     fi
 
 else
-    echo -e "${GREEN}Skipping update check.${NC}"
+    echo -e "${GRAY}┌──────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${GRAY}│${NC} ${WHITE}Update check skipped by user${NC}"
+    echo -e "${GRAY}└─────────────────────────────────────────────────────────────────${NC}"
+    echo ""
 fi
 
 echo ""
@@ -264,7 +412,7 @@ echo ""
 # SECURITY FEATURES
 #============================================================================
 
-echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}═════════════════════════════════════════════════════${NC}"
 echo -e "${CYAN}            SECURITY AUDIT & TOOLS                     ${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
 echo ""
@@ -313,7 +461,7 @@ perform_security_audit() {
 
     # Start markdown report
     cat > "$AUDIT_FILE" << EOF
-# Linwatch Security Audit Report
+# LinWatch Security Audit Report
 **Generated:** $(date)
 **Hostname:** $(hostname)
 **Kernel:** $(uname -r)
@@ -539,16 +687,22 @@ EOF
 
     # Footer
     echo "---" >> "$AUDIT_FILE"
-    echo "*Report generated by Linwatch Security Audit*" >> "$AUDIT_FILE"
+    echo "*Report generated by LinWatch Security Audit*" >> "$AUDIT_FILE"
 
     echo -e "${GREEN}✓ Security audit complete!${NC}"
     echo -e "${GREEN}Report saved to: ${CYAN}$AUDIT_FILE${NC}"
     echo ""
 }
 
-# Main security menu
-echo -ne "${CYAN}Would you like to perform a security audit? (y/n): ${NC}"
+# Enhanced security menu with comfort styling
+echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${MAGENTA}│${NC} ${WHITE}Would you like to perform a comprehensive security audit?${NC}"
+echo -e "${MAGENTA}│${NC}"
+echo -ne "${MAGENTA}│${NC} ${CYAN}Run security audit? (y/n):${NC} "
 read -r SECURITY_RESPONSE
+echo -e "${MAGENTA}│${NC}"
+echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
+echo ""
 
 if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
 
@@ -566,8 +720,14 @@ if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
     fi
 
     if [ "$TOOLS_MISSING" = true ]; then
-        echo -ne "${CYAN}Would you like to install missing security tools? (y/n): ${NC}"
+        echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│${NC} ${WHITE}Some security tools are missing for a complete audit${NC}"
+        echo -e "${YELLOW}│${NC}"
+        echo -ne "${YELLOW}│${NC} ${CYAN}Install missing tools? (y/n):${NC} "
         read -r INSTALL_TOOLS
+        echo -e "${YELLOW}│${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+        echo ""
 
         if [[ "$INSTALL_TOOLS" =~ ^[Yy]$ ]]; then
             install_security_tools
@@ -579,7 +739,10 @@ if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
     perform_security_audit
 
 else
-    echo -e "${GREEN}Security audit skipped.${NC}"
+    echo -e "${GRAY}┌──────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${GRAY}│${NC} ${WHITE}Security audit skipped by user${NC}"
+    echo -e "${GRAY}└─────────────────────────────────────────────────────────────────${NC}"
+    echo ""
 fi
 
 echo ""
@@ -588,18 +751,37 @@ echo ""
 # REBOOT PROMPT (After everything is complete)
 #============================================================================
 
-# Now ask about reboot if updates were installed
+# Enhanced reboot prompt with comfort styling
 if [ "$UPDATES_INSTALLED" = true ]; then
-    echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
-    echo -ne "${CYAN}Updates were installed. Do you wish to reboot the system now? (y/n): ${NC}"
+    echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Updates were successfully installed!${NC}"
+    echo -e "${GREEN}│${NC} ${YELLOW}A reboot is recommended to apply all changes${NC}"
+    echo -e "${GREEN}│${NC}"
+    echo -ne "${GREEN}│${NC} ${CYAN}Reboot system now? (y/n):${NC} "
     read -r REBOOT_RESPONSE
+    echo -e "${GREEN}│${NC}"
+    echo -e "${GREEN}└─────────────────────────────────────────────────────────────────${NC}"
+    echo ""
     if [[ "$REBOOT_RESPONSE" =~ ^[Yy]$ ]]; then
         echo -e "${GREEN}Rebooting system...${NC}"
         sudo reboot
     else
-        echo -e "${YELLOW}Reboot skipped. Please remember to reboot later to apply all updates.${NC}"
+        echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│${NC} ${WHITE}Reboot skipped. Remember to reboot later to apply updates.${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+        echo ""
     fi
-    echo ""
 fi
 
-echo -e "${GREEN}Linwatch complete!${NC}"
+# Enhanced completion message
+echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${BOLD}${WHITE}LinWatch session completed successfully!${NC}"
+echo -e "${CYAN}│${NC}"
+echo -e "${CYAN}│${NC} ${GRAY}Thank you for using LinWatch - your cozy system companion${NC}"
+echo -e "${CYAN}│${NC} ${GRAY}Stay safe, keep updated, and have a great day!${NC}"
+echo -e "${CYAN}│${NC}"
+echo -e "${CYAN}│${NC} ${GREEN}✓ System monitored${NC}"
+echo -e "${CYAN}│${NC} ${GREEN}✓ Updates checked${NC}"
+echo -e "${CYAN}│${NC} ${GREEN}✓ Security audited${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo ""
