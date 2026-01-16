@@ -34,29 +34,19 @@ welcome_animation() {
 # Enhanced ASCII art with gradient effect
 show_welcome_header() {
     clear
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                                                                                                   ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ███    ██ ██     ██  █████  ████████  ██████ ██   ██${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ████   ██ ██     ██ ██   ██    ██    ██      ██   ██${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ██ ██  ██ ██  █  ██ ███████    ██    ██      ███████${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ██      ██ ██  ██ ██ ██ ███ ██ ██   ██    ██    ██      ██   ██${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}${WHITE}  ███████ ██ ██   ████  ███ ███  ██   ██    ██     ██████ ██   ██${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                                                   ${CYAN}║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}██╗     ██╗███╗   ██╗██╗    ██╗ █████╗ ████████╗ ██████╗██╗  ██╗${NC}"
+    echo -e "${CYAN}██║     ██║████╗  ██║██║    ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║${NC}"
+    echo -e "${CYAN}██║     ██║██╔██╗ ██║██║ █╗ ██║███████║   ██║   ██║     ███████║${NC}"
+    echo -e "${CYAN}██║     ██║██║╚██╗██║██║███╗██║██╔══██║   ██║   ██║     ██╔══██║${NC}"
+    echo -e "${CYAN}███████╗██║██║ ╚████║╚███╔███╔╝██║  ██║   ██║   ╚██████╗██║  ██║${NC}"
+    echo -e "${CYAN}╚══════╝╚═╝╚═╝  ╚═══╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝${NC}"
     echo ""
-    echo -e "${GRAY}                              ${BOLD}Linux System Monitor & Updater${NC}"
-    echo -e "${GRAY}                                Version 1.0.6 | $(date '+%Y-%m-%d')${NC}"
+    echo -e "${GRAY}                    ${BOLD}Linux System Monitor & Updater${NC}"
+    echo -e "${GRAY}                      Version 1.0.6 | $(date '+%Y-%m-%d')${NC}"
     echo ""
-    
-    # Animated status indicators
-    echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}●${NC} System Health: ${GREEN}OPTIMAL${NC}"
-    echo -e "${CYAN}│${NC} ${BLUE}●${NC} Network: ${BLUE}CONNECTED${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Updates: ${YELLOW}CHECKING...${NC}"
-    echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${GREEN}●${NC} System Health: ${GREEN}OPTIMAL${NC}    ${BLUE}●${NC} Network: ${BLUE}CONNECTED${NC}    ${YELLOW}●${NC} Updates: ${YELLOW}CHECKING...${NC}"
     echo ""
 }
-
 # Comfortable loading animation
 comfort_loading() {
     local message="$1"
