@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Version: 1.0.7
+
 # Colours
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -15,8 +17,17 @@ NC='\033[0m'
 # Variable to track if updates were installed
 UPDATES_INSTALLED=false
 
+# Function to get current version from script
+get_current_version() {
+    if [[ -f "$0" ]]; then
+        grep '^# Version:' "$0" | head -1 | sed -E 's/# Version: *v?//' || echo "1.0.6"
+    else
+        echo "1.0.6"
+    fi
+}
+
 # Current version of LinWatch
-CURRENT_VERSION="1.0.7"
+CURRENT_VERSION=$(get_current_version)
 
 # Function to get latest release from GitHub API
 get_latest_release() {
@@ -29,6 +40,27 @@ get_latest_release() {
         fi
     else
         echo ""
+    fi
+}
+
+# Function to update version in script
+update_version_in_script() {
+    local new_version="$1"
+    local script_file="$0"
+    
+    if [[ -f "$script_file" ]]; then
+        # Update version variable if it exists
+        if grep -q '^CURRENT_VERSION=' "$script_file"; then
+            sed -i "s/^CURRENT_VERSION=\"[^\"]*\"/CURRENT_VERSION=\"$new_version\"/" "$script_file"
+        fi
+        
+        # Add or update version comment at the top of the script
+        if grep -q '^# Version:' "$script_file"; then
+            sed -i "s/^# Version:.*/# Version: $new_version/" "$script_file"
+        else
+            # Add version comment after the shebang line
+            sed -i "2i# Version: $new_version" "$script_file"
+        fi
     fi
 }
 
@@ -87,6 +119,9 @@ update_linwatch() {
         # Replace the old script
         mv "${0}.new" "$0"
         
+        # Update version information in the new script
+        update_version_in_script "$latest_tag"
+        
         echo -e "${GREEN}✓ LinWatch updated successfully to version $latest_tag!${NC}"
         echo -e "${GRAY}Backup saved to: $backup_path${NC}"
         echo -e "${YELLOW}Please restart LinWatch to use the new version.${NC}"
@@ -111,10 +146,14 @@ check_linwatch_updates() {
         return 1
     fi
     
-    echo -e "${GRAY}Current version: $CURRENT_VERSION${NC}"
+    # Get current version from script file
+    local current_version
+    current_version=$(get_current_version)
+    
+    echo -e "${GRAY}Current version: $current_version${NC}"
     echo -e "${GRAY}Latest version: $latest_release${NC}"
     
-    if compare_versions "$CURRENT_VERSION" "$latest_release"; then
+    if compare_versions "$current_version" "$latest_release"; then
         echo -e "${GREEN}LinWatch is up to date!${NC}"
         return 0
     else
@@ -173,7 +212,7 @@ show_welcome_header() {
     echo -e "${CYAN}╚══════╝╚═╝╚═╝  ╚═══╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝${NC}"
     echo ""
     echo -e "${GRAY}                    ${BOLD}Linux System Monitor & Updater${NC}"
-    echo -e "${GRAY}                      Version 1.0.6 | $(date '+%Y-%m-%d')${NC}"
+    echo -e "${GRAY}                      Version $CURRENT_VERSION | $(date '+%Y-%m-%d')${NC}"
     echo ""
     echo -e "${GREEN}●${NC} System Health: ${GREEN}OPTIMAL${NC}    ${BLUE}●${NC} Network: ${BLUE}CONNECTED${NC}    ${YELLOW}●${NC} Updates: ${YELLOW}CHECKING...${NC}"
     echo ""
