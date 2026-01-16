@@ -16,7 +16,7 @@ NC='\033[0m'
 UPDATES_INSTALLED=false
 
 # Current version of LinWatch
-CURRENT_VERSION="1.0.6"
+CURRENT_VERSION="1.0.7"
 
 # Function to get latest release from GitHub API
 get_latest_release() {
