@@ -89,7 +89,7 @@ main_welcome
 # Kernel Info with enhanced styling
 echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Kernel Version:${NC} ${GREEN}$(uname -r)${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # CPU Info with enhanced display
@@ -99,7 +99,7 @@ echo -e "${CYAN}│${NC} ${WHITE}CPU(s):${NC} ${GREEN}$(lscpu | awk '/^CPU\(s\):
 echo -e "${CYAN}│${NC} ${WHITE}Threads:${NC} ${GREEN}$(lscpu | awk '/^Thread(s):/ {print $2}')${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Cores:${NC} ${GREEN}$(lscpu | awk '/^Core(s):/ {print $2}')${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Model:${NC} ${GREEN}$(lscpu | awk '/^Model name:/ {print substr($0, index($0, $3))}')${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Memory Info with enhanced visualization
@@ -155,7 +155,7 @@ echo ""
 # Uptime with enhanced display
 echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────┐${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}System has been up for:${NC} ${GREEN}$(uptime -p)${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Network Info with enhanced display
@@ -189,7 +189,7 @@ echo -e "${CYAN}│${NC} ${WHITE}Active Sessions:${NC}"
 who | while read line; do
     echo -e "${CYAN}│${NC}   ${GRAY}$line${NC}"
 done
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Open Ports with enhanced display
@@ -212,7 +212,7 @@ elif command -v netstat >/dev/null 2>&1; then
 else
     echo -e "${CYAN}│${NC}   ${RED}Neither 'ss' nor 'netstat' is installed${NC}"
 fi
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # System Information with enhanced display
@@ -222,7 +222,7 @@ DISTRO_NAME=$(awk -F= '/^NAME=/{print $2}' /etc/os-release | tr -d '"')
 echo -e "${CYAN}│${NC} ${WHITE}Distribution:${NC} ${GREEN}$DISTRO_NAME${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Hostname:${NC} ${GREEN}$(hostname)${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Shell:${NC} ${GREEN}$SHELL${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Last Update Date
@@ -274,7 +274,7 @@ echo -e "${MAGENTA}│${NC}"
 echo -ne "${MAGENTA}│${NC} ${CYAN}Check for updates? (y/n):${NC} "
 read -r USER_RESPONSE
 echo -e "${MAGENTA}│${NC}"
-echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
@@ -343,7 +343,7 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
         echo -ne "${YELLOW}│${NC} ${CYAN}Install updates now? (y/n):${NC} "
         read -r INSTALL_RESPONSE
         echo -e "${YELLOW}│${NC}"
-        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "${YELLOW}└──────────────────────────────────────────────────────────────────${NC}"
         echo ""
 
         if [[ "$INSTALL_RESPONSE" =~ ^[Yy]$ ]]; then
@@ -378,8 +378,8 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
 
         else
             echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
-echo -e "${YELLOW}│${NC} ${WHITE}Update installation skipped by user${NC}"
-        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+            echo -e "${YELLOW}│${NC} ${WHITE}Update installation skipped by user${NC}"
+            echo -e "${YELLOW}└──────────────────────────────────────────────────────────────────${NC}"
             echo ""
         fi
     else
@@ -392,7 +392,7 @@ echo -e "${YELLOW}│${NC} ${WHITE}Update installation skipped by user${NC}"
 else
     echo -e "${GRAY}┌──────────────────────────────────────────────────────────────────┐${NC}"
     echo -e "${GRAY}│${NC} ${WHITE}Update check skipped by user${NC}"
-    echo -e "${GRAY}└─────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${GRAY}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
 fi
 
@@ -402,7 +402,7 @@ echo ""
 # SECURITY FEATURES
 #============================================================================
 
-echo -e "${CYAN}═════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
 echo -e "${CYAN}            SECURITY AUDIT & TOOLS                     ${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
 echo ""
@@ -691,7 +691,7 @@ echo -e "${MAGENTA}│${NC}"
 echo -ne "${MAGENTA}│${NC} ${CYAN}Run security audit? (y/n):${NC} "
 read -r SECURITY_RESPONSE
 echo -e "${MAGENTA}│${NC}"
-echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
@@ -716,7 +716,7 @@ if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
         echo -ne "${YELLOW}│${NC} ${CYAN}Install missing tools? (y/n):${NC} "
         read -r INSTALL_TOOLS
         echo -e "${YELLOW}│${NC}"
-        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "${YELLOW}└──────────────────────────────────────────────────────────────────${NC}"
         echo ""
 
         if [[ "$INSTALL_TOOLS" =~ ^[Yy]$ ]]; then
@@ -731,7 +731,7 @@ if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
 else
     echo -e "${GRAY}┌──────────────────────────────────────────────────────────────────┐${NC}"
     echo -e "${GRAY}│${NC} ${WHITE}Security audit skipped by user${NC}"
-    echo -e "${GRAY}└─────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${GRAY}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
 fi
 
@@ -750,7 +750,7 @@ if [ "$UPDATES_INSTALLED" = true ]; then
     echo -ne "${GREEN}│${NC} ${CYAN}Reboot system now? (y/n):${NC} "
     read -r REBOOT_RESPONSE
     echo -e "${GREEN}│${NC}"
-    echo -e "${GREEN}└─────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
     if [[ "$REBOOT_RESPONSE" =~ ^[Yy]$ ]]; then
         echo -e "${GREEN}Rebooting system...${NC}"
@@ -758,7 +758,7 @@ if [ "$UPDATES_INSTALLED" = true ]; then
     else
         echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
         echo -e "${YELLOW}│${NC} ${WHITE}Reboot skipped. Remember to reboot later to apply updates.${NC}"
-        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "${YELLOW}└──────────────────────────────────────────────────────────────────${NC}"
         echo ""
     fi
 fi
@@ -773,5 +773,5 @@ echo -e "${CYAN}│${NC}"
 echo -e "${CYAN}│${NC} ${GREEN}✓ System monitored${NC}"
 echo -e "${CYAN}│${NC} ${GREEN}✓ Updates checked${NC}"
 echo -e "${CYAN}│${NC} ${GREEN}✓ Security audited${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
