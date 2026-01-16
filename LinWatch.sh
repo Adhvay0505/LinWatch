@@ -15,6 +15,137 @@ NC='\033[0m'
 # Variable to track if updates were installed
 UPDATES_INSTALLED=false
 
+# Current version of LinWatch
+CURRENT_VERSION="1.0.6"
+
+# Function to get latest release from GitHub API
+get_latest_release() {
+    if command -v curl >/dev/null 2>&1; then
+        LATEST_RELEASE=$(curl -s --max-time 10 "https://api.github.com/repos/Adhvay0505/LinWatch/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        if [[ -n "$LATEST_RELEASE" ]]; then
+            echo "$LATEST_RELEASE"
+        else
+            echo ""
+        fi
+    else
+        echo ""
+    fi
+}
+
+# Function to compare versions
+compare_versions() {
+    local current="$1"
+    local latest="$2"
+    
+    # Remove 'v' prefix if present
+    current=${current#v}
+    latest=${latest#v}
+    
+    # Split version numbers
+    IFS='.' read -ra CURRENT_PARTS <<< "$current"
+    IFS='.' read -ra LATEST_PARTS <<< "$latest"
+    
+    # Compare major, minor, patch
+    for i in {0..2}; do
+        local current_part=${CURRENT_PARTS[$i]:-0}
+        local latest_part=${LATEST_PARTS[$i]:-0}
+        
+        if (( current_part < latest_part )); then
+            return 1  # Update available
+        elif (( current_part > latest_part )); then
+            return 0  # Current is newer
+        fi
+    done
+    
+    return 0  # Versions are equal
+}
+
+# Function to download and install latest release
+update_linwatch() {
+    local latest_tag="$1"
+    
+    echo -e "${CYAN}Downloading LinWatch $latest_tag...${NC}"
+    
+    # Get download URL for the latest release
+    DOWNLOAD_URL=$(curl -s --max-time 10 "https://api.github.com/repos/Adhvay0505/LinWatch/releases/latest" | grep '"browser_download_url":.*LinWatch\.sh' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [[ -z "$DOWNLOAD_URL" ]]; then
+        echo -e "${RED}Failed to get download URL for LinWatch $latest_tag${NC}"
+        return 1
+    fi
+    
+    # Create backup of current script
+    local backup_path="${0}.backup.$(date +%Y%m%d-%H%M%S)"
+    echo -e "${YELLOW}Creating backup: $backup_path${NC}"
+    cp "$0" "$backup_path"
+    
+    # Download the new version
+    if curl -L --max-time 30 -o "${0}.new" "$DOWNLOAD_URL"; then
+        # Make it executable
+        chmod +x "${0}.new"
+        
+        # Replace the old script
+        mv "${0}.new" "$0"
+        
+        echo -e "${GREEN}✓ LinWatch updated successfully to version $latest_tag!${NC}"
+        echo -e "${GRAY}Backup saved to: $backup_path${NC}"
+        echo -e "${YELLOW}Please restart LinWatch to use the new version.${NC}"
+        return 0
+    else
+        echo -e "${RED}Failed to download LinWatch $latest_tag${NC}"
+        # Remove incomplete download if it exists
+        rm -f "${0}.new"
+        return 1
+    fi
+}
+
+# Function to check for LinWatch updates
+check_linwatch_updates() {
+    echo -e "${CYAN}Checking for LinWatch updates...${NC}"
+    
+    local latest_release
+    latest_release=$(get_latest_release)
+    
+    if [[ -z "$latest_release" ]]; then
+        echo -e "${YELLOW}Unable to check for updates (no internet connection or GitHub API unavailable)${NC}"
+        return 1
+    fi
+    
+    echo -e "${GRAY}Current version: $CURRENT_VERSION${NC}"
+    echo -e "${GRAY}Latest version: $latest_release${NC}"
+    
+    if compare_versions "$CURRENT_VERSION" "$latest_release"; then
+        echo -e "${GREEN}LinWatch is up to date!${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}A new version of LinWatch is available: $latest_release${NC}"
+        echo -e "${MAGENTA}Release notes: https://github.com/Adhvay0505/LinWatch/releases/tag/$latest_release${NC}"
+        
+        echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│${NC} ${WHITE}Would you like to update LinWatch now?${NC}"
+        echo -e "${YELLOW}│${NC}"
+        echo -ne "${YELLOW}│${NC} ${CYAN}Update to $latest_release? (y/n):${NC} "
+        read -r UPDATE_RESPONSE
+        echo -e "${YELLOW}│${NC}"
+        echo -e "${YELLOW}└──────────────────────────────────────────────────────────────────${NC}"
+        echo ""
+        
+        if [[ "$UPDATE_RESPONSE" =~ ^[Yy]$ ]]; then
+            if update_linwatch "$latest_release"; then
+                echo -e "${GREEN}Update completed! Restart LinWatch to use the new version.${NC}"
+                exit 0
+            else
+                echo -e "${RED}Update failed. You can manually update from:${NC}"
+                echo -e "${CYAN}https://github.com/Adhvay0505/LinWatch/releases/latest${NC}"
+                return 1
+            fi
+        else
+            echo -e "${GRAY}Update skipped by user${NC}"
+            return 1
+        fi
+    fi
+}
+
 # Animated welcome function
 welcome_animation() {
     clear
@@ -76,6 +207,21 @@ main_welcome() {
     comfort_loading "Initializing update checker" 10
     
     echo ""
+    
+    # Check for LinWatch updates
+    echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${MAGENTA}│${NC} ${WHITE}Check for LinWatch application updates?${NC}"
+    echo -e "${MAGENTA}│${NC}"
+    echo -ne "${MAGENTA}│${NC} ${CYAN}Check for LinWatch updates? (y/n):${NC} "
+    read -r LINWATCH_UPDATE_RESPONSE
+    echo -e "${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    
+    if [[ "$LINWATCH_UPDATE_RESPONSE" =~ ^[Yy]$ ]]; then
+        check_linwatch_updates
+        echo ""
+    fi
     echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
     echo -e "${MAGENTA}│${NC} ${BOLD}${WHITE}Let's make your system feel great today!${NC}"
     echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
