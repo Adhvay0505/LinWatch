@@ -14,8 +14,10 @@ GRAY='\033[0;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# Variable to track if updates were installed
+# Variables to track user actions
 UPDATES_INSTALLED=false
+UPDATES_CHECKED=false
+SECURITY_AUDITED=false
 
 # Function to get current version from script
 get_current_version() {
@@ -463,6 +465,7 @@ echo -e "${MAGENTA}└───────────────────�
 echo ""
 
 if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
+    UPDATES_CHECKED=true
     comfort_loading "Checking for system updates" 20
     echo ""
 
@@ -564,8 +567,12 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
             # Check for Flatpak installation and update Flatpak packages
             if command -v flatpak >/dev/null 2>&1; then
                 echo -e "${CYAN}Flatpak detected, checking for Flatpak updates...${NC}"
+                comfort_loading "Checking Flatpak applications" 15
+                comfort_loading "Downloading Flatpak updates" 20
+                echo -e "${CYAN}Installing Flatpak updates...${NC}"
                 flatpak update -y
-                echo -e "${GREEN}Flatpak updates completed!${NC}"
+                comfort_loading "Finalizing Flatpak installation" 10
+                echo -e "${GREEN}✓ Flatpak updates completed successfully!${NC}"
             fi
 
         else
@@ -887,6 +894,7 @@ echo -e "${MAGENTA}└───────────────────�
 echo ""
 
 if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
+    SECURITY_AUDITED=true
 
     # Check if tools are installed
     TOOLS_MISSING=false
@@ -963,7 +971,15 @@ echo -e "${CYAN}│${NC} ${GRAY}Thank you for using LinWatch - your cozy system 
 echo -e "${CYAN}│${NC} ${GRAY}Stay safe, keep updated, and have a great day!${NC}"
 echo -e "${CYAN}│${NC}"
 echo -e "${CYAN}│${NC} ${GREEN}✓ System monitored${NC}"
-echo -e "${CYAN}│${NC} ${GREEN}✓ Updates checked${NC}"
-echo -e "${CYAN}│${NC} ${GREEN}✓ Security audited${NC}"
+if [ "$UPDATES_CHECKED" = true ]; then
+    echo -e "${CYAN}│${NC} ${GREEN}✓ Updates checked${NC}"
+else
+    echo -e "${CYAN}│${NC} ${GRAY}○ Updates skipped${NC}"
+fi
+if [ "$SECURITY_AUDITED" = true ]; then
+    echo -e "${CYAN}│${NC} ${GREEN}✓ Security audited${NC}"
+else
+    echo -e "${CYAN}│${NC} ${GRAY}○ Security audit skipped${NC}"
+fi
 echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
