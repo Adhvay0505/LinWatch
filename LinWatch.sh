@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.7
+# Version: 1.0.9
 
 # Colours
 RED='\033[0;31m'
@@ -560,6 +560,13 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
             # Mark that updates were installed
             UPDATES_INSTALLED=true
             echo -e "${GREEN}Updates installed successfully!${NC}"
+            
+            # Check for Flatpak installation and update Flatpak packages
+            if command -v flatpak >/dev/null 2>&1; then
+                echo -e "${CYAN}Flatpak detected, checking for Flatpak updates...${NC}"
+                flatpak update -y
+                echo -e "${GREEN}Flatpak updates completed!${NC}"
+            fi
 
         else
             echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────┐${NC}"
