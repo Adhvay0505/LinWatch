@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.9
+# Version: 1.0.10
 
 # Colours
 RED='\033[0;31m'
