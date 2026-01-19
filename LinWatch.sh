@@ -608,29 +608,29 @@ echo ""
 
 # Function to install security tools
 install_security_tools() {
-    echo -e "${YELLOW}Installing security tools (rkhunter and chkrootkit)...${NC}"
+    echo -e "${YELLOW}Installing security tools (rkhunter, chkrootkit, and ClamAV)...${NC}"
 
     if command -v apt >/dev/null 2>&1; then
         sudo apt update -qq
-        sudo apt install -y rkhunter chkrootkit 2>/dev/null
+        sudo apt install -y rkhunter chkrootkit clamav clamav-daemon clamav-freshclam 2>/dev/null
 
     elif command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y rkhunter chkrootkit 2>/dev/null
+        sudo dnf install -y rkhunter chkrootkit clamav clamav-update 2>/dev/null
 
     elif command -v yum >/dev/null 2>&1; then
-        sudo yum install -y rkhunter chkrootkit 2>/dev/null
+        sudo yum install -y rkhunter chkrootkit clamav clamav-update 2>/dev/null
 
     elif command -v pacman >/dev/null 2>&1; then
-        sudo pacman -S --noconfirm rkhunter chkrootkit 2>/dev/null
+        sudo pacman -S --noconfirm rkhunter chkrootkit clamav 2>/dev/null
 
     elif command -v zypper >/dev/null 2>&1; then
-        sudo zypper install -y rkhunter chkrootkit 2>/dev/null
+        sudo zypper install -y rkhunter chkrootkit clamav 2>/dev/null
 
     elif command -v apk >/dev/null 2>&1; then
-        sudo apk add rkhunter chkrootkit 2>/dev/null
+        sudo apk add rkhunter chkrootkit clamav 2>/dev/null
 
     elif command -v emerge >/dev/null 2>&1; then
-        sudo emerge --quiet app-forensics/rkhunter app-forensics/chkrootkit 2>/dev/null
+        sudo emerge --quiet app-forensics/rkhunter app-forensics/chkrootkit app-antivirus/clamav 2>/dev/null
 
     else
         echo -e "${RED}Package manager not recognized. Cannot install security tools.${NC}"
@@ -663,6 +663,7 @@ EOF
     # Check if security tools are installed
     RKHUNTER_INSTALLED=false
     CHKROOTKIT_INSTALLED=false
+    CLAMAV_INSTALLED=false
 
     if command -v rkhunter >/dev/null 2>&1; then
         RKHUNTER_INSTALLED=true
@@ -670,6 +671,10 @@ EOF
 
     if command -v chkrootkit >/dev/null 2>&1; then
         CHKROOTKIT_INSTALLED=true
+    fi
+
+    if command -v clamscan >/dev/null 2>&1; then
+        CLAMAV_INSTALLED=true
     fi
 
     # Section 1: System Information
@@ -797,6 +802,7 @@ EOF
     echo "" >> "$AUDIT_FILE"
     echo "- **rkhunter:** $(if $RKHUNTER_INSTALLED; then echo "Installed ✓"; else echo "Not Installed ✗"; fi)" >> "$AUDIT_FILE"
     echo "- **chkrootkit:** $(if $CHKROOTKIT_INSTALLED; then echo "Installed ✓"; else echo "Not Installed ✗"; fi)" >> "$AUDIT_FILE"
+    echo "- **ClamAV:** $(if $CLAMAV_INSTALLED; then echo "Installed ✓"; else echo "Not Installed ✗"; fi)" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
     # Section 9: Rootkit Scan (rkhunter)
@@ -822,8 +828,111 @@ EOF
         echo "" >> "$AUDIT_FILE"
     fi
 
-    # Section 11: Recommendations
-    echo "## 11. Security Recommendations" >> "$AUDIT_FILE"
+    # Section 11: ClamAV Malware Scan
+    if [ "$CLAMAV_INSTALLED" = true ]; then
+        echo -e "${CYAN}Running ClamAV malware scan...${NC}"
+        echo "## 11. ClamAV Malware Scan" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Update virus definitions
+        echo "### Virus Definition Update" >> "$AUDIT_FILE"
+        echo '```' >> "$AUDIT_FILE"
+        if command -v freshclam >/dev/null 2>&1; then
+            echo "Updating ClamAV virus definitions..." >> "$AUDIT_FILE"
+            sudo freshclam --quiet >> "$AUDIT_FILE" 2>&1
+            if [ $? -eq 0 ]; then
+                echo "✅ Virus definitions updated successfully" >> "$AUDIT_FILE"
+            else
+                echo "⚠️ Warning: Failed to update virus definitions" >> "$AUDIT_FILE"
+            fi
+        else
+            echo "⚠️ Warning: freshclam not found" >> "$AUDIT_FILE"
+        fi
+        echo '```' >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Start ClamAV services for current session only
+        echo "### Service Management (Current Session)" >> "$AUDIT_FILE"
+        echo '```' >> "$AUDIT_FILE"
+        SERVICE_STARTED=false
+        
+        if command -v systemctl >/dev/null 2>&1; then
+            # Try common service names
+            for service in "clamav-daemon" "clamav" "clamd"; do
+                if systemctl list-unit-files | grep -q "^${service}.service"; then
+                    if ! systemctl is-active --quiet "$service" 2>/dev/null; then
+                        echo "Starting $service for current session..." >> "$AUDIT_FILE"
+                        sudo systemctl start "$service" >> "$AUDIT_FILE" 2>&1
+                        if systemctl is-active --quiet "$service" 2>/dev/null; then
+                            echo "✅ $service started successfully" >> "$AUDIT_FILE"
+                            SERVICE_STARTED=true
+                        else
+                            echo "⚠️ Failed to start $service" >> "$AUDIT_FILE"
+                        fi
+                        break
+                    else
+                        echo "✅ $service already running" >> "$AUDIT_FILE"
+                        SERVICE_STARTED=true
+                        break
+                    fi
+                fi
+            done
+            
+            if [ "$SERVICE_STARTED" = false ]; then
+                echo "ℹ️ No ClamAV service found, using scanner only" >> "$AUDIT_FILE"
+            fi
+        else
+            echo "ℹ️ systemd not available, using scanner only" >> "$AUDIT_FILE"
+        fi
+        echo '```' >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Scan critical directories with threat-only output
+        echo "### Critical Directories Scan" >> "$AUDIT_FILE"
+        echo '```' >> "$AUDIT_FILE"
+        echo "Scanning critical directories for malware..." >> "$AUDIT_FILE"
+        
+        # Define critical directories to scan
+        SCAN_DIRS="/home /tmp /var/www /usr/local/bin /var/tmp"
+        THREATS_FOUND=false
+        THREAT_COUNT=0
+        
+        for dir in $SCAN_DIRS; do
+            if [ -d "$dir" ]; then
+                echo "Scanning $dir..." >> "$AUDIT_FILE"
+                # Only show infected files, not full scan output
+                SCAN_RESULT=$(clamscan --recursive --infected --no-summary "$dir" 2>/dev/null)
+                if echo "$SCAN_RESULT" | grep -q "FOUND"; then
+                    THREATS_FOUND=true
+                    THREAT_COUNT=$((THREAT_COUNT + $(echo "$SCAN_RESULT" | grep -c "FOUND")))
+                    echo "$SCAN_RESULT" >> "$AUDIT_FILE"
+                fi
+            fi
+        done
+        
+        echo '```' >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Scan Summary
+        echo "### Scan Summary" >> "$AUDIT_FILE"
+        if [ "$THREATS_FOUND" = true ]; then
+            echo "⚠️ **$THREAT_COUNT threat(s) detected in critical directories**" >> "$AUDIT_FILE"
+            echo "🔍 See detailed findings above" >> "$AUDIT_FILE"
+        else
+            echo "✅ **No threats detected in critical directories**" >> "$AUDIT_FILE"
+        fi
+        
+        # Scan Statistics
+        echo "" >> "$AUDIT_FILE"
+        echo "**Scan Statistics:**" >> "$AUDIT_FILE"
+        echo "- Directories scanned: $SCAN_DIRS" >> "$AUDIT_FILE"
+        echo "- Scan mode: Threat detection only (clean files not shown)" >> "$AUDIT_FILE"
+        echo "- Service status: $(if [ "$SERVICE_STARTED" = true ]; then echo "Running"; else echo "Scanner only"; fi)" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    fi
+
+    # Section 12: Recommendations
+    echo "## 12. Security Recommendations" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
     RECOMMENDATIONS=()
@@ -857,6 +966,10 @@ EOF
 
     if [ "$CHKROOTKIT_INSTALLED" = false ]; then
         RECOMMENDATIONS+=("- 💡 **Install chkrootkit:** Additional rootkit scanning")
+    fi
+
+    if [ "$CLAMAV_INSTALLED" = false ]; then
+        RECOMMENDATIONS+=("- 💡 **Install ClamAV:** Malware and virus scanning for critical files")
     fi
 
     RECOMMENDATIONS+=("- 💡 **Keep system updated:** Regularly run system updates")
@@ -907,6 +1020,11 @@ if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
     if ! command -v chkrootkit >/dev/null 2>&1; then
         TOOLS_MISSING=true
         echo -e "${YELLOW}chkrootkit is not installed.${NC}"
+    fi
+
+    if ! command -v clamscan >/dev/null 2>&1; then
+        TOOLS_MISSING=true
+        echo -e "${YELLOW}ClamAV (clamscan) is not installed.${NC}"
     fi
 
     if [ "$TOOLS_MISSING" = true ]; then
