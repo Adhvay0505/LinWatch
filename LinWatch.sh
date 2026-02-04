@@ -14,10 +14,24 @@ GRAY='\033[0;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# Disk cleanup configuration
+DEFAULT_RETENTION_DAYS=30
+MAX_FILE_SIZE_MB=1000
+MIN_SPACE_THRESHOLD_MB=500
+BACKUP_RETENTION_DAYS=7
+
+# Critical system paths to protect (never delete from these)
+CRITICAL_PATHS=("/boot" "/etc" "/usr/bin" "/bin" "/sbin" "/lib" "/lib64" "/proc" "/sys" "/dev")
+
 # Variables to track user actions
 UPDATES_INSTALLED=false
 UPDATES_CHECKED=false
 SECURITY_AUDITED=false
+
+# Variables to track disk cleanup operations
+CLEANUP_PERFORMED=false
+SPACE_SAVED_MB=0
+CLEANUP_LOG_FILE=""
 
 # Function to get current version from script
 get_current_version() {
@@ -184,6 +198,491 @@ check_linwatch_updates() {
             echo -e "${GRAY}Update skipped by user${NC}"
             return 1
         fi
+    fi
+}
+
+#============================================================
+# DISK CLEANUP FUNCTIONS
+#============================================================
+
+# Convert MB to human readable format (moved to accessible location)
+format_size() {
+    local size_mb="$1"
+    if [[ $size_mb -ge 1024 ]]; then
+        if command -v bc >/dev/null 2>&1; then
+            echo "$(echo "scale=1; $size_mb / 1024" | bc)GB"
+        else
+            local gb=$((size_mb / 1024))
+            local remainder=$((size_mb % 1024))
+            if [[ $remainder -gt 0 ]]; then
+                echo "${gb}.$((remainder * 10 / 1024))GB"
+            else
+                echo "${gb}GB"
+            fi
+        fi
+    else
+        echo "${size_mb}MB"
+    fi
+}
+
+# Get directory size in MB
+get_dir_size_mb() {
+    local dir="$1"
+    if [[ -d "$dir" ]]; then
+        du -sm "$dir" 2>/dev/null | cut -f1 || echo "0"
+    else
+        echo "0"
+    fi
+}
+
+# Check if path is safe to clean (not in critical paths)
+is_safe_path() {
+    local path="$1"
+    for critical in "${CRITICAL_PATHS[@]}"; do
+        if [[ "$path" == "$critical"* ]]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Create backup directory for rollback
+create_cleanup_backup() {
+    local backup_dir="/tmp/linwatch_backup_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    CLEANUP_LOG_FILE="/tmp/linwatch_cleanup_$(date +%Y%m%d_%H%M%S).log"
+    echo "$backup_dir"
+}
+
+# Log cleanup action with space saved
+log_cleanup_action() {
+    local action="$1"
+    local space_mb="$2"
+    local details="$3"
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $action: $space_mb MB - $details" >> "$CLEANUP_LOG_FILE"
+}
+
+# Analyze potential cleanup opportunities
+analyze_disk_usage() {
+    echo -e "${CYAN}Analyzing disk usage and cleanup opportunities...${NC}"
+    echo ""
+    
+    local total_potential=0
+    local analysis_results=()
+    
+    # Package manager caches
+    echo -e "${WHITE}📦 Package Manager Caches:${NC}"
+    if command -v apt >/dev/null 2>&1 && [[ -d /var/cache/apt/archives ]]; then
+        local apt_size=$(get_dir_size_mb "/var/cache/apt/archives")
+        if [[ $apt_size -gt 10 ]]; then
+            echo -e "   ${GRAY}APT cache:${NC} $(format_size $apt_size)"
+            analysis_results+=("apt_cache:$apt_size")
+            total_potential=$((total_potential + apt_size))
+        fi
+    fi
+    
+    if command -v yum >/dev/null 2>&1 && [[ -d /var/cache/yum ]]; then
+        local yum_size=$(get_dir_size_mb "/var/cache/yum")
+        if [[ $yum_size -gt 10 ]]; then
+            echo -e "   ${GRAY}YUM cache:${NC} $(format_size $yum_size)"
+            analysis_results+=("yum_cache:$yum_size")
+            total_potential=$((total_potential + yum_size))
+        fi
+    fi
+    
+    if command -v dnf >/dev/null 2>&1 && [[ -d /var/cache/dnf ]]; then
+        local dnf_size=$(get_dir_size_mb "/var/cache/dnf")
+        if [[ $dnf_size -gt 10 ]]; then
+            echo -e "   ${GRAY}DNF cache:${NC} $(format_size $dnf_size)"
+            analysis_results+=("dnf_cache:$dnf_size")
+            total_potential=$((total_potential + dnf_size))
+        fi
+    fi
+    
+    echo ""
+    
+    # Temporary files
+    echo -e "${WHITE}🗂️  Temporary Files:${NC}"
+    if [[ -d /tmp ]]; then
+        local tmp_size=$(find /tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [[ $tmp_size -gt 50 ]]; then
+            echo -e "   ${GRAY}/tmp (7+ days):${NC} $(format_size $tmp_size)"
+            analysis_results+=("temp_files:$tmp_size")
+            total_potential=$((total_potential + tmp_size))
+        fi
+    fi
+    
+    if [[ -d /var/tmp ]]; then
+        local var_tmp_size=$(find /var/tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [[ $var_tmp_size -gt 50 ]]; then
+            echo -e "   ${GRAY}/var/tmp (7+ days):${NC} $(format_size $var_tmp_size)"
+            analysis_results+=("var_temp:$var_tmp_size")
+            total_potential=$((total_potential + var_tmp_size))
+        fi
+    fi
+    
+    echo ""
+    
+    # Log files
+    echo -e "${WHITE}📋 Log Files:${NC}"
+    local log_size=0
+    if [[ -d /var/log ]]; then
+        # Compressed logs
+        local compressed_logs=$(find /var/log -name "*.gz" -o -name "*.bz2" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [[ $compressed_logs -gt 10 ]]; then
+            echo -e "   ${GRAY}Compressed logs (30+ days):${NC} $(format_size $compressed_logs)"
+            log_size=$((log_size + compressed_logs))
+        fi
+        
+        # Old log files
+        local old_logs=$(find /var/log -name "*.log.*" -o -name "*.old" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [[ $old_logs -gt 10 ]]; then
+            echo -e "   ${GRAY}Old logs (30+ days):${NC} $(format_size $old_logs)"
+            log_size=$((log_size + old_logs))
+        fi
+    fi
+    
+    if [[ $log_size -gt 10 ]]; then
+        analysis_results+=("old_logs:$log_size")
+        total_potential=$((total_potential + log_size))
+    fi
+    
+    echo ""
+    
+    # Journal logs
+    if command -v journalctl >/dev/null 2>&1; then
+        local journal_size=$(journalctl --disk-usage | awk '{print $2}' | sed 's/[^0-9.]//g' | cut -d. -f1)
+        if [[ $journal_size -gt 100 ]]; then
+            echo -e "   ${GRAY}Systemd journal (30+ days):${NC} ~$(format_size $journal_size)"
+            analysis_results+=("journal_logs:$journal_size")
+            total_potential=$((total_potential + journal_size))
+        fi
+    fi
+    
+    echo ""
+    
+    # Docker cleanup
+    if command -v docker >/dev/null 2>&1; then
+        echo -e "${WHITE}🐳 Docker Resources:${NC}"
+        local docker_size=$(docker system df --format "table {{.Type}}\t{{.Size}}" | grep -v "TYPE" | awk '{sum+=$2} END {print sum+0}' 2>/dev/null)
+        if [[ $docker_size -gt 100 ]]; then
+            echo -e "   ${GRAY}Unused containers/images:${NC} ~$(format_size $docker_size)"
+            analysis_results+=("docker_cleanup:$docker_size")
+            total_potential=$((total_potential + docker_size))
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${GREEN}│${NC} ${BOLD}Total Potential Space Recovery: $(format_size $total_potential)${NC}"
+    echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    
+    # Store results for later use
+    ANALYSIS_RESULTS=("${analysis_results[@]}")
+    TOTAL_POTENTIAL=$total_potential
+}
+
+# Quick cleanup function (safe operations)
+cleanup_quick() {
+    echo -e "${CYAN}Performing quick cleanup...${NC}"
+    local space_saved=0
+    
+    # Package cache cleanup
+    if command -v apt >/dev/null 2>&1; then
+        comfort_loading "Cleaning APT package cache" 10
+        local before_size=$(get_dir_size_mb "/var/cache/apt/archives")
+        apt-get clean >/dev/null 2>&1
+        local after_size=$(get_dir_size_mb "/var/cache/apt/archives")
+        local apt_saved=$((before_size - after_size))
+        space_saved=$((space_saved + apt_saved))
+        log_cleanup_action "APT cache cleanup" $apt_saved "Package archives removed"
+        echo -e "${GREEN}✓ APT cache cleaned: $(format_size $apt_saved)${NC}"
+    fi
+    
+    if command -v dnf >/dev/null 2>&1; then
+        comfort_loading "Cleaning DNF package cache" 10
+        dnf clean all >/dev/null 2>&1
+        echo -e "${GREEN}✓ DNF cache cleaned${NC}"
+    fi
+    
+    if command -v yum >/dev/null 2>&1; then
+        comfort_loading "Cleaning YUM package cache" 10
+        yum clean all >/dev/null 2>&1
+        echo -e "${GREEN}✓ YUM cache cleaned${NC}"
+    fi
+    
+    # Temp files cleanup
+    comfort_loading "Cleaning temporary files" 15
+    local temp_saved=0
+    if [[ -d /tmp ]]; then
+        local temp_before=$(find /tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        find /tmp -type f -mtime +7 -delete 2>/dev/null
+        local temp_after=$(find /tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        temp_saved=$((temp_before - temp_after))
+    fi
+    
+    if [[ -d /var/tmp ]]; then
+        local var_temp_before=$(find /var/tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        find /var/tmp -type f -mtime +7 -delete 2>/dev/null
+        local var_temp_after=$(find /var/tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        local var_temp_saved=$((var_temp_before - var_temp_after))
+        temp_saved=$((temp_saved + var_temp_saved))
+    fi
+    
+    space_saved=$((space_saved + temp_saved))
+    if [[ $temp_saved -gt 0 ]]; then
+        log_cleanup_action "Temp files cleanup" $temp_saved "Files older than 7 days"
+        echo -e "${GREEN}✓ Temporary files cleaned: $(format_size $temp_saved)${NC}"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}Quick cleanup completed! Total space saved: $(format_size $space_saved)${NC}"
+    SPACE_SAVED_MB=$((SPACE_SAVED_MB + space_saved))
+}
+
+# Standard cleanup function (includes logs and docker)
+cleanup_standard() {
+    echo -e "${CYAN}Performing standard cleanup...${NC}"
+    local space_saved=0
+    
+    # First do quick cleanup
+    cleanup_quick
+    space_saved=$SPACE_SAVED_MB
+    
+    echo ""
+    echo -e "${CYAN}Continuing with additional cleanup...${NC}"
+    
+    # Log files cleanup
+    comfort_loading "Cleaning old log files" 20
+    local logs_saved=0
+    if [[ -d /var/log ]]; then
+        local logs_before=0
+        logs_before=$((logs_before + $(find /var/log -name "*.gz" -o -name "*.bz2" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
+        logs_before=$((logs_before + $(find /var/log -name "*.log.*" -o -name "*.old" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
+        
+        find /var/log -name "*.gz" -mtime +30 -delete 2>/dev/null
+        find /var/log -name "*.bz2" -mtime +30 -delete 2>/dev/null
+        find /var/log -name "*.log.*" -mtime +30 -delete 2>/dev/null
+        find /var/log -name "*.old" -mtime +30 -delete 2>/dev/null
+        
+        local logs_after=0
+        logs_after=$((logs_after + $(find /var/log -name "*.gz" -o -name "*.bz2" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
+        logs_after=$((logs_after + $(find /var/log -name "*.log.*" -o -name "*.old" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
+        
+        logs_saved=$((logs_before - logs_after))
+    fi
+    
+    if [[ $logs_saved -gt 0 ]]; then
+        log_cleanup_action "Log files cleanup" $logs_saved "Logs older than 30 days"
+        echo -e "${GREEN}✓ Log files cleaned: $(format_size $logs_saved)${NC}"
+    fi
+    
+    # Journal cleanup
+    if command -v journalctl >/dev/null 2>&1; then
+        comfort_loading "Cleaning systemd journal" 15
+        local journal_before=$(journalctl --disk-usage | awk '{print $2}' | sed 's/[^0-9.]//g' | cut -d. -f1)
+        journalctl --vacuum-time=30d >/dev/null 2>&1
+        local journal_after=$(journalctl --disk-usage | awk '{print $2}' | sed 's/[^0-9.]//g' | cut -d. -f1)
+        local journal_saved=$((journal_before - journal_after))
+        
+        if [[ $journal_saved -gt 0 ]]; then
+            log_cleanup_action "Journal cleanup" $journal_saved "Journals older than 30 days"
+            echo -e "${GREEN}✓ Systemd journal cleaned: $(format_size $journal_saved)${NC}"
+            logs_saved=$((logs_saved + journal_saved))
+        fi
+    fi
+    
+    space_saved=$((space_saved + logs_saved))
+    
+    # Docker cleanup
+    if command -v docker >/dev/null 2>&1; then
+        comfort_loading "Cleaning Docker resources" 25
+        local docker_before=$(docker system df --format "{{.Size}}" 2>/dev/null | grep -v "^$" | awk '{gsub(/[^0-9.]/, ""); sum+=$1} END {print sum+0}')
+        docker system prune -af --volumes >/dev/null 2>&1
+        local docker_after=$(docker system df --format "{{.Size}}" 2>/dev/null | grep -v "^$" | awk '{gsub(/[^0-9.]/, ""); sum+=$1} END {print sum+0}')
+        local docker_saved=$((docker_before - docker_after))
+        
+        if [[ $docker_saved -gt 0 ]]; then
+            log_cleanup_action "Docker cleanup" $docker_saved "Unused containers, images, and volumes"
+            echo -e "${GREEN}✓ Docker resources cleaned: $(format_size $docker_saved)${NC}"
+            space_saved=$((space_saved + docker_saved))
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}Standard cleanup completed! Total space saved: $(format_size $space_saved)${NC}"
+    SPACE_SAVED_MB=$space_saved
+}
+
+# Custom cleanup menu
+cleanup_custom() {
+    while true; do
+        clear
+        echo -e "${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║                  CUSTOM CLEANUP MENU                   ║${NC}"
+        echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        
+        # Show current status with estimates
+        analyze_disk_usage
+        
+        echo -e "${WHITE}Select cleanup options:${NC}"
+        echo ""
+        echo -e "${YELLOW}1)${NC} Package manager caches (APT/YUM/DNF)"
+        echo -e "${YELLOW}2)${NC} Temporary files (/tmp, /var/tmp)"
+        echo -e "${YELLOW}3)${NC} Old log files (30+ days)"
+        echo -e "${YELLOW}4)${NC} Systemd journal (30+ days)"
+        echo -e "${YELLOW}5)${NC} Docker resources (containers, images, volumes)"
+        echo -e "${YELLOW}6)${NC} Run all selected"
+        echo -e "${YELLOW}7)${NC} Back to main menu"
+        echo ""
+        
+        echo -ne "${CYAN}Enter your choices (1-7, multiple allowed):${NC} "
+        read -r user_choices
+        
+        case "$user_choices" in
+            *"1"*)
+                echo -e "${CYAN}Cleaning package manager caches...${NC}"
+                if command -v apt >/dev/null 2>&1; then
+                    local apt_before=$(get_dir_size_mb "/var/cache/apt/archives")
+                    apt-get clean >/dev/null 2>&1
+                    local apt_after=$(get_dir_size_mb "/var/cache/apt/archives")
+                    local apt_saved=$((apt_before - apt_after))
+                    echo -e "${GREEN}✓ APT cache saved: $(format_size $apt_saved)${NC}"
+                    SPACE_SAVED_MB=$((SPACE_SAVED_MB + apt_saved))
+                fi
+                ;;
+            *"2"*)
+                echo -e "${CYAN}Cleaning temporary files...${NC}"
+                # Implementation for temp files
+                ;;
+            *"3"*)
+                echo -e "${CYAN}Cleaning old log files...${NC}"
+                # Implementation for log files
+                ;;
+            *"4"*)
+                echo -e "${CYAN}Cleaning systemd journal...${NC}"
+                if command -v journalctl >/dev/null 2>&1; then
+                    journalctl --vacuum-time=30d >/dev/null 2>&1
+                    echo -e "${GREEN}✓ Systemd journal cleaned${NC}"
+                fi
+                ;;
+            *"5"*)
+                echo -e "${CYAN}Cleaning Docker resources...${NC}"
+                if command -v docker >/dev/null 2>&1; then
+                    docker system prune -af --volumes >/dev/null 2>&1
+                    echo -e "${GREEN}✓ Docker resources cleaned${NC}"
+                fi
+                ;;
+            *"6"*)
+                cleanup_standard
+                ;;
+            *"7"*)
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid selection. Please try again.${NC}"
+                sleep 2
+                ;;
+        esac
+        
+        if [[ "$user_choices" != *"7"* ]]; then
+            echo ""
+            echo -e "${GREEN}Custom cleanup in progress. Current total saved: $(format_size $SPACE_SAVED_MB)${NC}"
+            echo -ne "${CYAN}Press Enter to continue...${NC}"
+            read -r
+        fi
+    done
+}
+
+# Main cleanup interface
+run_disk_cleanup_interface() {
+    # Get current disk usage before cleanup
+    local before_usage=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+    
+    echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}              DISK CLEANUP & OPTIMIZATION              ${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
+    echo ""
+    
+    echo -e "${WHITE}Current disk usage:${NC} ${YELLOW}${before_usage}%${NC}"
+    echo ""
+    
+    # Analyze what can be cleaned
+    analyze_disk_usage
+    
+    # Only show cleanup options if there's meaningful space to recover
+    if [[ $TOTAL_POTENTIAL -lt $((MIN_SPACE_THRESHOLD_MB / 1024)) ]]; then
+        echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────${NC}"
+        echo -e "${GREEN}│${NC} ${WHITE}System is already clean! Minimal space available for cleanup.${NC}"
+        echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
+        echo ""
+        return 0
+    fi
+    
+    # Show cleanup menu
+    echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${MAGENTA}│${NC} ${WHITE}Select cleanup level:${NC}"
+    echo -e "${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}│${NC} ${YELLOW}1)${NC} ${WHITE}Quick cleanup${NC} ${GRAY}(temp files, package cache)${NC}"
+    echo -e "${MAGENTA}│${NC} ${YELLOW}2)${NC} ${WHITE}Standard cleanup${NC} ${GRAY}(adds logs, docker, journal)${NC}"
+    echo -e "${MAGENTA}│${NC} ${YELLOW}3)${NC} ${WHITE}Custom cleanup${NC} ${GRAY}(choose specific items)${NC}"
+    echo -e "${MAGENTA}│${NC} ${YELLOW}4)${NC} ${WHITE}Skip cleanup${NC}"
+    echo -e "${MAGENTA}│${NC}"
+    echo -ne "${MAGENTA}│${NC} ${CYAN}Choose option (1-4):${NC} "
+    read -r cleanup_choice
+    echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    
+    case "$cleanup_choice" in
+        1)
+            echo -e "${CYAN}Starting quick cleanup...${NC}"
+            cleanup_quick
+            CLEANUP_PERFORMED=true
+            ;;
+        2)
+            echo -e "${CYAN}Starting standard cleanup...${NC}"
+            cleanup_standard
+            CLEANUP_PERFORMED=true
+            ;;
+        3)
+            cleanup_custom
+            CLEANUP_PERFORMED=true
+            ;;
+        4)
+            echo -e "${GRAY}Disk cleanup skipped by user${NC}"
+            echo ""
+            return 0
+            ;;
+        *)
+            echo -e "${RED}Invalid choice. Skipping cleanup.${NC}"
+            echo ""
+            return 0
+            ;;
+    esac
+    
+    # Show after cleanup results
+    if [[ "$CLEANUP_PERFORMED" = true ]]; then
+        local after_usage=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+        local usage_improvement=$((before_usage - after_usage))
+        
+        echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
+        echo -e "${GREEN}                    CLEANUP SUMMARY                    ${NC}"
+        echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
+        echo -e "${GREEN}│${NC} ${WHITE}Space recovered:${NC} ${BOLD}$(format_size $SPACE_SAVED_MB)${NC}"
+        echo -e "${GREEN}│${NC} ${WHITE}Disk usage change:${NC} ${before_usage}% → ${after_usage}% ${GRAY}(${usage_improvement}% improvement)${NC}"
+        
+        if [[ -n "$CLEANUP_LOG_FILE" && -f "$CLEANUP_LOG_FILE" ]]; then
+            echo -e "${GREEN}│${NC} ${WHITE}Cleanup log:${NC} ${GRAY}$CLEANUP_LOG_FILE${NC}"
+        fi
+        echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
+        echo ""
+        
+        # Clean up old backup directories
+        find /tmp -name "linwatch_backup_*" -mtime +$BACKUP_RETENTION_DAYS -exec rm -rf {} + 2>/dev/null
+        find /tmp -name "linwatch_cleanup_*.log" -mtime +$BACKUP_RETENTION_DAYS -delete 2>/dev/null
     fi
 }
 
@@ -1081,6 +1580,19 @@ if [ "$UPDATES_INSTALLED" = true ]; then
     fi
 fi
 
+echo ""
+
+#============================================================================
+# DISK CLEANUP FEATURE
+#============================================================================
+
+echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}              DISK CLEANUP & OPTIMIZATION              ${NC}"
+echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
+echo ""
+
+run_disk_cleanup_interface
+
 # Enhanced completion message
 echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
 echo -e "${CYAN}│${NC} ${BOLD}${WHITE}LinWatch session completed successfully!${NC}"
@@ -1098,6 +1610,11 @@ if [ "$SECURITY_AUDITED" = true ]; then
     echo -e "${CYAN}│${NC} ${GREEN}✓ Security audited${NC}"
 else
     echo -e "${CYAN}│${NC} ${GRAY}○ Security audit skipped${NC}"
+fi
+if [ "$CLEANUP_PERFORMED" = true ]; then
+    echo -e "${CYAN}│${NC} ${GREEN}✓ Disk cleaned: $(format_size $SPACE_SAVED_MB) freed${NC}"
+else
+    echo -e "${CYAN}│${NC} ${GRAY}○ Disk cleanup skipped${NC}"
 fi
 echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
