@@ -272,7 +272,7 @@ analyze_disk_usage() {
     local analysis_results=()
     
     # Package manager caches
-    echo -e "${WHITE}📦 Package Manager Caches:${NC}"
+    echo -e "${WHITE}📦 Package Manager Caches & Cleanup:${NC}"
     if command -v apt >/dev/null 2>&1 && [[ -d /var/cache/apt/archives ]]; then
         local apt_size=$(get_dir_size_mb "/var/cache/apt/archives")
         if [[ $apt_size -gt 10 ]]; then
@@ -280,6 +280,9 @@ analyze_disk_usage() {
             analysis_results+=("apt_cache:$apt_size")
             total_potential=$((total_potential + apt_size))
         fi
+        # Show autoremove availability
+        echo -e "   ${GRAY}APT autoremove:${NC} ${GREEN}Available${NC} ${GRAY}(removes unused packages)${NC}"
+        total_potential=$((total_potential + 50))  # Estimate 50MB potential from autoremove
     fi
     
     if command -v yum >/dev/null 2>&1 && [[ -d /var/cache/yum ]]; then
@@ -298,6 +301,21 @@ analyze_disk_usage() {
             analysis_results+=("dnf_cache:$dnf_size")
             total_potential=$((total_potential + dnf_size))
         fi
+        # Show autoremove availability
+        echo -e "   ${GRAY}DNF autoremove:${NC} ${GREEN}Available${NC} ${GRAY}(removes unused packages)${NC}"
+        total_potential=$((total_potential + 50))  # Estimate 50MB potential from autoremove
+    fi
+    
+    if command -v yum >/dev/null 2>&1 && [[ -d /var/cache/yum ]]; then
+        local yum_size=$(get_dir_size_mb "/var/cache/yum")
+        if [[ $yum_size -gt 10 ]]; then
+            echo -e "   ${GRAY}YUM cache:${NC} $(format_size $yum_size)"
+            analysis_results+=("yum_cache:$yum_size")
+            total_potential=$((total_potential + yum_size))
+        fi
+        # Show autoremove availability
+        echo -e "   ${GRAY}YUM autoremove:${NC} ${GREEN}Available${NC} ${GRAY}(removes unused packages)${NC}"
+        total_potential=$((total_potential + 50))  # Estimate 50MB potential from autoremove
     fi
     
     echo ""
@@ -395,54 +413,54 @@ cleanup_quick() {
         local before_size=$(get_dir_size_mb "/var/cache/apt/archives")
         apt-get clean >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/apt/archives")
-        local apt_saved=$((before_size - after_size))
+        local apt_cache_saved=$((before_size - after_size))
         
-        # Also run autoremove for unused packages
-        comfort_loading "Removing unused packages" 8
+        # Run autoremove for unused packages
+        comfort_loading "Removing unused packages (autoremove)" 8
         apt-get autoremove -y >/dev/null 2>&1
         
-        space_saved=$((space_saved + apt_saved))
-        if [[ $apt_saved -gt 0 ]]; then
-            log_cleanup_action "APT cache cleanup" $apt_saved "Package archives removed"
-            echo -e "${GREEN}✓ APT cache cleaned: $(format_size $apt_saved)${NC}"
+        space_saved=$((space_saved + apt_cache_saved))
+        if [[ $apt_cache_saved -gt 0 ]]; then
+            log_cleanup_action "APT cache cleanup" $apt_cache_saved "Package archives removed"
+            echo -e "${GREEN}✓ APT cache cleaned: $(format_size $apt_cache_saved)${NC}"
         fi
-        echo -e "${GREEN}✓ Unused packages removed${NC}"
+        echo -e "${GREEN}✓ Unused packages removed (autoremove)${NC}"
         
     elif command -v dnf >/dev/null 2>&1; then
         comfort_loading "Cleaning DNF package cache" 10
         local before_size=$(get_dir_size_mb "/var/cache/dnf")
         dnf clean all >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/dnf")
-        local dnf_saved=$((before_size - after_size))
+        local dnf_cache_saved=$((before_size - after_size))
         
-        # Also run autoremove for unused packages
-        comfort_loading "Removing unused packages" 8
+        # Run autoremove for unused packages
+        comfort_loading "Removing unused packages (autoremove)" 8
         dnf autoremove -y >/dev/null 2>&1
         
-        space_saved=$((space_saved + dnf_saved))
-        if [[ $dnf_saved -gt 0 ]]; then
-            log_cleanup_action "DNF cache cleanup" $dnf_saved "Package archives removed"
-            echo -e "${GREEN}✓ DNF cache cleaned: $(format_size $dnf_saved)${NC}"
+        space_saved=$((space_saved + dnf_cache_saved))
+        if [[ $dnf_cache_saved -gt 0 ]]; then
+            log_cleanup_action "DNF cache cleanup" $dnf_cache_saved "Package archives removed"
+            echo -e "${GREEN}✓ DNF cache cleaned: $(format_size $dnf_cache_saved)${NC}"
         fi
-        echo -e "${GREEN}✓ Unused packages removed${NC}"
+        echo -e "${GREEN}✓ Unused packages removed (autoremove)${NC}"
         
     elif command -v yum >/dev/null 2>&1; then
         comfort_loading "Cleaning YUM package cache" 10
         local before_size=$(get_dir_size_mb "/var/cache/yum")
         yum clean all >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/yum")
-        local yum_saved=$((before_size - after_size))
+        local yum_cache_saved=$((before_size - after_size))
         
-        # Also run autoremove for unused packages
-        comfort_loading "Removing unused packages" 8
+        # Run autoremove for unused packages
+        comfort_loading "Removing unused packages (autoremove)" 8
         yum autoremove -y >/dev/null 2>&1
         
-        space_saved=$((space_saved + yum_saved))
-        if [[ $yum_saved -gt 0 ]]; then
-            log_cleanup_action "YUM cache cleanup" $yum_saved "Package archives removed"
-            echo -e "${GREEN}✓ YUM cache cleaned: $(format_size $yum_saved)${NC}"
+        space_saved=$((space_saved + yum_cache_saved))
+        if [[ $yum_cache_saved -gt 0 ]]; then
+            log_cleanup_action "YUM cache cleanup" $yum_cache_saved "Package archives removed"
+            echo -e "${GREEN}✓ YUM cache cleaned: $(format_size $yum_cache_saved)${NC}"
         fi
-        echo -e "${GREEN}✓ Unused packages removed${NC}"
+        echo -e "${GREEN}✓ Unused packages removed (autoremove)${NC}"
     fi
     
     # Temp files cleanup - clean old temp files (1+ days) for immediate results
@@ -567,12 +585,13 @@ cleanup_custom() {
         echo -e "${WHITE}Select cleanup options:${NC}"
         echo ""
         echo -e "${YELLOW}1)${NC} Package manager caches (APT/YUM/DNF)"
-        echo -e "${YELLOW}2)${NC} Temporary files (/tmp, /var/tmp)"
-        echo -e "${YELLOW}3)${NC} Old log files (30+ days)"
-        echo -e "${YELLOW}4)${NC} Systemd journal (30+ days)"
-        echo -e "${YELLOW}5)${NC} Docker resources (containers, images, volumes)"
-        echo -e "${YELLOW}6)${NC} Run all selected"
-        echo -e "${YELLOW}7)${NC} Back to main menu"
+        echo -e "${YELLOW}2)${NC} Package autoremove (unused dependencies)"
+        echo -e "${YELLOW}3)${NC} Temporary files (/tmp, /var/tmp)"
+        echo -e "${YELLOW}4)${NC} Old log files (30+ days)"
+        echo -e "${YELLOW}5)${NC} Systemd journal (30+ days)"
+        echo -e "${YELLOW}6)${NC} Docker resources (containers, images, volumes)"
+        echo -e "${YELLOW}7)${NC} Run all selected"
+        echo -e "${YELLOW}8)${NC} Back to main menu"
         echo ""
         
         echo -ne "${CYAN}Enter your choices (1-7, multiple allowed):${NC} "
@@ -662,8 +681,8 @@ run_disk_cleanup_interface() {
     echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
     echo -e "${MAGENTA}│${NC} ${WHITE}Select cleanup level:${NC}"
     echo -e "${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}│${NC} ${YELLOW}1)${NC} ${WHITE}Quick cleanup${NC} ${GRAY}(temp files, package cache)${NC}"
-    echo -e "${MAGENTA}│${NC} ${YELLOW}2)${NC} ${WHITE}Standard cleanup${NC} ${GRAY}(adds logs, docker, journal)${NC}"
+    echo -e "${MAGENTA}│${NC} ${YELLOW}1)${NC} ${WHITE}Quick cleanup${NC} ${GRAY}(temp files, package cache, autoremove)${NC}"
+    echo -e "${MAGENTA}│${NC} ${YELLOW}2)${NC} ${WHITE}Standard cleanup${NC} ${GRAY}(adds logs, docker, journal, autoremove)${NC}"
     echo -e "${MAGENTA}│${NC} ${YELLOW}3)${NC} ${WHITE}Custom cleanup${NC} ${GRAY}(choose specific items)${NC}"
     echo -e "${MAGENTA}│${NC} ${YELLOW}4)${NC} ${WHITE}Skip cleanup${NC}"
     echo -e "${MAGENTA}│${NC}"
@@ -1030,7 +1049,7 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
 
     elif command -v pacman >/dev/null 2>&1; then
         sudo pacman -Sy --noconfirm > /dev/null 2>&1
-        UPGRADABLE=$(pacman -Qu | wc -l)
+        UPGRADABLE=$(pacman -Qu 2>/dev/null | wc -l)
         if [ "$UPGRADABLE" -gt 0 ]; then
             updates_available=true
             echo -e "${CYAN}There are $UPGRADABLE packages available for upgrade via pacman.${NC}"
@@ -1038,7 +1057,7 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
 
     elif command -v zypper >/dev/null 2>&1; then
         sudo zypper refresh > /dev/null 2>&1
-        UPGRADABLE=$(zypper lu | grep -c '^v')
+        UPGRADABLE=$(zypper lu 2>/dev/null | grep -c '^v')
         if [ "$UPGRADABLE" -gt 0 ]; then
             updates_available=true
             echo -e "${CYAN}There are $UPGRADABLE packages available for upgrade via zypper.${NC}"
@@ -1394,7 +1413,7 @@ EOF
         if command -v systemctl >/dev/null 2>&1; then
             # Try common service names
             for service in "clamav-daemon" "clamav" "clamd"; do
-                if systemctl list-unit-files | grep -q "^${service}.service"; then
+                if systemctl list-unit-files 2>/dev/null | grep -q "^${service}.service"; then
                     if ! systemctl is-active --quiet "$service" 2>/dev/null; then
                         echo "Starting $service for current session..." >> "$AUDIT_FILE"
                         sudo systemctl start "$service" >> "$AUDIT_FILE" 2>&1

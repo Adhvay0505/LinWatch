@@ -178,11 +178,11 @@ if zenity --question --title="LinWatch \u2013 Updates" --width=330 \
             elif command -v yum >/dev/null 2>&1; then
                 sudo yum update -y | zenity --progress --pulsate --auto-close --title="Upgrading..."
             elif command -v pacman >/dev/null 2>&1; then
-                sudo pacman -Syu --noconfirm | zenity --progress --pulsate --auto-close --title="Upgrading..."
+                sudo pacman -Syu --noconfirm 2>/dev/null | zenity --progress --pulsate --auto-close --title="Upgrading..."
             elif command -v zypper >/dev/null 2>&1; then
-                sudo zypper update -y | zenity --progress --pulsate --auto-close --title="Upgrading..."
+                sudo zypper update -y 2>/dev/null | zenity --progress --pulsate --auto-close --title="Upgrading..."
             elif command -v apk >/dev/null 2>&1; then
-                sudo apk upgrade | zenity --progress --pulsate --auto-close --title="Upgrading..."
+                sudo apk upgrade 2>/dev/null | zenity --progress --pulsate --auto-close --title="Upgrading..."
             elif command -v emerge >/dev/null 2>&1; then
                 zenity --warning --text="Gentoo users: Please upgrade manually."
             fi
