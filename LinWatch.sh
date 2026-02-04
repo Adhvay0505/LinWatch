@@ -305,18 +305,18 @@ analyze_disk_usage() {
     # Temporary files
     echo -e "${WHITE}🗂️  Temporary Files:${NC}"
     if [[ -d /tmp ]]; then
-        local tmp_size=$(find /tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-        if [[ $tmp_size -gt 50 ]]; then
-            echo -e "   ${GRAY}/tmp (7+ days):${NC} $(format_size $tmp_size)"
+        local tmp_size=$(find /tmp -type f -mtime +1 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [[ $tmp_size -gt 10 ]]; then
+            echo -e "   ${GRAY}/tmp (1+ days):${NC} $(format_size $tmp_size)"
             analysis_results+=("temp_files:$tmp_size")
             total_potential=$((total_potential + tmp_size))
         fi
     fi
     
     if [[ -d /var/tmp ]]; then
-        local var_tmp_size=$(find /var/tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-        if [[ $var_tmp_size -gt 50 ]]; then
-            echo -e "   ${GRAY}/var/tmp (7+ days):${NC} $(format_size $var_tmp_size)"
+        local var_tmp_size=$(find /var/tmp -type f -mtime +1 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        if [[ $var_tmp_size -gt 10 ]]; then
+            echo -e "   ${GRAY}/var/tmp (1+ days):${NC} $(format_size $var_tmp_size)"
             analysis_results+=("var_temp:$var_tmp_size")
             total_potential=$((total_potential + var_tmp_size))
         fi
@@ -396,37 +396,73 @@ cleanup_quick() {
         apt-get clean >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/apt/archives")
         local apt_saved=$((before_size - after_size))
+        
+        # Also run autoremove for unused packages
+        comfort_loading "Removing unused packages" 8
+        apt-get autoremove -y >/dev/null 2>&1
+        
         space_saved=$((space_saved + apt_saved))
-        log_cleanup_action "APT cache cleanup" $apt_saved "Package archives removed"
-        echo -e "${GREEN}✓ APT cache cleaned: $(format_size $apt_saved)${NC}"
-    fi
-    
-    if command -v dnf >/dev/null 2>&1; then
+        if [[ $apt_saved -gt 0 ]]; then
+            log_cleanup_action "APT cache cleanup" $apt_saved "Package archives removed"
+            echo -e "${GREEN}✓ APT cache cleaned: $(format_size $apt_saved)${NC}"
+        fi
+        echo -e "${GREEN}✓ Unused packages removed${NC}"
+        
+    elif command -v dnf >/dev/null 2>&1; then
         comfort_loading "Cleaning DNF package cache" 10
+        local before_size=$(get_dir_size_mb "/var/cache/dnf")
         dnf clean all >/dev/null 2>&1
-        echo -e "${GREEN}✓ DNF cache cleaned${NC}"
-    fi
-    
-    if command -v yum >/dev/null 2>&1; then
+        local after_size=$(get_dir_size_mb "/var/cache/dnf")
+        local dnf_saved=$((before_size - after_size))
+        
+        # Also run autoremove for unused packages
+        comfort_loading "Removing unused packages" 8
+        dnf autoremove -y >/dev/null 2>&1
+        
+        space_saved=$((space_saved + dnf_saved))
+        if [[ $dnf_saved -gt 0 ]]; then
+            log_cleanup_action "DNF cache cleanup" $dnf_saved "Package archives removed"
+            echo -e "${GREEN}✓ DNF cache cleaned: $(format_size $dnf_saved)${NC}"
+        fi
+        echo -e "${GREEN}✓ Unused packages removed${NC}"
+        
+    elif command -v yum >/dev/null 2>&1; then
         comfort_loading "Cleaning YUM package cache" 10
+        local before_size=$(get_dir_size_mb "/var/cache/yum")
         yum clean all >/dev/null 2>&1
-        echo -e "${GREEN}✓ YUM cache cleaned${NC}"
+        local after_size=$(get_dir_size_mb "/var/cache/yum")
+        local yum_saved=$((before_size - after_size))
+        
+        # Also run autoremove for unused packages
+        comfort_loading "Removing unused packages" 8
+        yum autoremove -y >/dev/null 2>&1
+        
+        space_saved=$((space_saved + yum_saved))
+        if [[ $yum_saved -gt 0 ]]; then
+            log_cleanup_action "YUM cache cleanup" $yum_saved "Package archives removed"
+            echo -e "${GREEN}✓ YUM cache cleaned: $(format_size $yum_saved)${NC}"
+        fi
+        echo -e "${GREEN}✓ Unused packages removed${NC}"
     fi
     
-    # Temp files cleanup
+    # Temp files cleanup - clean old temp files (1+ days) for immediate results
     comfort_loading "Cleaning temporary files" 15
     local temp_saved=0
     if [[ -d /tmp ]]; then
-        local temp_before=$(find /tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-        find /tmp -type f -mtime +7 -delete 2>/dev/null
-        local temp_after=$(find /tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-        temp_saved=$((temp_before - temp_after))
+        local temp_before=$(du -sm /tmp 2>/dev/null | cut -f1)
+        find /tmp -type f -mtime +1 -delete 2>/dev/null
+        # Also clean up temp directories that are old
+        find /tmp -type d -empty -mtime +1 -delete 2>/dev/null
+        local temp_after=$(du -sm /tmp 2>/dev/null | cut -f1)
+        local tmp_saved=$((temp_before - temp_after))
+        temp_saved=$((temp_saved + tmp_saved))
     fi
     
     if [[ -d /var/tmp ]]; then
-        local var_temp_before=$(find /var/tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
-        find /var/tmp -type f -mtime +7 -delete 2>/dev/null
-        local var_temp_after=$(find /var/tmp -type f -mtime +7 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+        local var_temp_before=$(du -sm /var/tmp 2>/dev/null | cut -f1)
+        find /var/tmp -type f -mtime +1 -delete 2>/dev/null
+        find /var/tmp -type d -empty -mtime +1 -delete 2>/dev/null
+        local var_temp_after=$(du -sm /var/tmp 2>/dev/null | cut -f1)
         local var_temp_saved=$((var_temp_before - var_temp_after))
         temp_saved=$((temp_saved + var_temp_saved))
     fi
