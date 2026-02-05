@@ -18,5 +18,5 @@ cd LinWatch
 ```
 ## Make the script executable and run it
 ```bash
-chmod +x <script_name>.sh
-./<script_name>.sh
+chmod +x LinWatch.sh
+./LinWatch.sh
