@@ -429,13 +429,13 @@ cleanup_quick() {
     elif command -v dnf >/dev/null 2>&1; then
         comfort_loading "Cleaning DNF package cache" 10
         local before_size=$(get_dir_size_mb "/var/cache/dnf")
-        dnf clean all >/dev/null 2>&1
+        sudo dnf clean all >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/dnf")
         local dnf_cache_saved=$((before_size - after_size))
         
         # Run autoremove for unused packages
         comfort_loading "Removing unused packages (autoremove)" 8
-        dnf autoremove -y >/dev/null 2>&1
+        sudo dnf autoremove -y >/dev/null 2>&1
         
         space_saved=$((space_saved + dnf_cache_saved))
         if [[ $dnf_cache_saved -gt 0 ]]; then
@@ -447,13 +447,13 @@ cleanup_quick() {
     elif command -v yum >/dev/null 2>&1; then
         comfort_loading "Cleaning YUM package cache" 10
         local before_size=$(get_dir_size_mb "/var/cache/yum")
-        yum clean all >/dev/null 2>&1
+        sudo yum clean all >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/yum")
         local yum_cache_saved=$((before_size - after_size))
         
         # Run autoremove for unused packages
         comfort_loading "Removing unused packages (autoremove)" 8
-        yum autoremove -y >/dev/null 2>&1
+        sudo yum autoremove -y >/dev/null 2>&1
         
         space_saved=$((space_saved + yum_cache_saved))
         if [[ $yum_cache_saved -gt 0 ]]; then
