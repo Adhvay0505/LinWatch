@@ -63,13 +63,13 @@ get_latest_release() {
 update_version_in_script() {
     local new_version="$1"
     local script_file="$0"
-    
+
     if [[ -f "$script_file" ]]; then
         # Update version variable if it exists
         if grep -q '^CURRENT_VERSION=' "$script_file"; then
             sed -i "s/^CURRENT_VERSION=\"[^\"]*\"/CURRENT_VERSION=\"$new_version\"/" "$script_file"
         fi
-        
+
         # Add or update version comment at the top of the script
         if grep -q '^# Version:' "$script_file"; then
             sed -i "s/^# Version:.*/# Version: $new_version/" "$script_file"
@@ -84,60 +84,60 @@ update_version_in_script() {
 compare_versions() {
     local current="$1"
     local latest="$2"
-    
+
     # Remove 'v' prefix if present
     current=${current#v}
     latest=${latest#v}
-    
+
     # Split version numbers
     IFS='.' read -ra CURRENT_PARTS <<< "$current"
     IFS='.' read -ra LATEST_PARTS <<< "$latest"
-    
+
     # Compare major, minor, patch
     for i in {0..2}; do
         local current_part=${CURRENT_PARTS[$i]:-0}
         local latest_part=${LATEST_PARTS[$i]:-0}
-        
+
         if (( current_part < latest_part )); then
             return 1  # Update available
         elif (( current_part > latest_part )); then
             return 0  # Current is newer
         fi
     done
-    
+
     return 0  # Versions are equal
 }
 
 # Function to download and install latest release
 update_linwatch() {
     local latest_tag="$1"
-    
+
     echo -e "${CYAN}Downloading LinWatch $latest_tag...${NC}"
-    
+
     # Get download URL for the latest release
     DOWNLOAD_URL=$(curl -s --max-time 10 "https://api.github.com/repos/Adhvay0505/LinWatch/releases/latest" | grep '"browser_download_url":.*LinWatch\.sh' | sed -E 's/.*"([^"]+)".*/\1/')
-    
+
     if [[ -z "$DOWNLOAD_URL" ]]; then
         echo -e "${RED}Failed to get download URL for LinWatch $latest_tag${NC}"
         return 1
     fi
-    
+
     # Create backup of current script
     local backup_path="${0}.backup.$(date +%Y%m%d-%H%M%S)"
     echo -e "${YELLOW}Creating backup: $backup_path${NC}"
     cp "$0" "$backup_path"
-    
+
     # Download the new version
     if curl -L --max-time 30 -o "${0}.new" "$DOWNLOAD_URL"; then
         # Make it executable
         chmod +x "${0}.new"
-        
+
         # Replace the old script
         mv "${0}.new" "$0"
-        
+
         # Update version information in the new script
         update_version_in_script "$latest_tag"
-        
+
         echo -e "${GREEN}✓ LinWatch updated successfully to version $latest_tag!${NC}"
         echo -e "${GRAY}Backup saved to: $backup_path${NC}"
         echo -e "${YELLOW}Please restart LinWatch to use the new version.${NC}"
@@ -153,29 +153,29 @@ update_linwatch() {
 # Function to check for LinWatch updates
 check_linwatch_updates() {
     echo -e "${CYAN}Checking for LinWatch updates...${NC}"
-    
+
     local latest_release
     latest_release=$(get_latest_release)
-    
+
     if [[ -z "$latest_release" ]]; then
         echo -e "${YELLOW}Unable to check for updates (no internet connection or GitHub API unavailable)${NC}"
         return 1
     fi
-    
+
     # Get current version from script file
     local current_version
     current_version=$(get_current_version)
-    
+
     echo -e "${GRAY}Current version: $current_version${NC}"
     echo -e "${GRAY}Latest version: $latest_release${NC}"
-    
+
     if compare_versions "$current_version" "$latest_release"; then
         echo -e "${GREEN}LinWatch is up to date!${NC}"
         return 0
     else
         echo -e "${YELLOW}A new version of LinWatch is available: $latest_release${NC}"
         echo -e "${MAGENTA}Release notes: https://github.com/Adhvay0505/LinWatch/releases/tag/$latest_release${NC}"
-        
+
         echo -e "${YELLOW}┌──────────────────────────────────────────────────────────────────${NC}"
         echo -e "${YELLOW}│${NC} ${WHITE}Would you like to update LinWatch now?${NC}"
         echo -e "${YELLOW}│${NC}"
@@ -184,7 +184,7 @@ check_linwatch_updates() {
         echo -e "${YELLOW}│${NC}"
         echo -e "${YELLOW}└──────────────────────────────────────────────────────────────────${NC}"
         echo ""
-        
+
         if [[ "$UPDATE_RESPONSE" =~ ^[Yy]$ ]]; then
             if update_linwatch "$latest_release"; then
                 echo -e "${GREEN}Update completed! Restart LinWatch to use the new version.${NC}"
@@ -259,7 +259,7 @@ log_cleanup_action() {
     local action="$1"
     local space_mb="$2"
     local details="$3"
-    
+
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $action: $space_mb MB - $details" >> "$CLEANUP_LOG_FILE"
 }
 
@@ -267,10 +267,10 @@ log_cleanup_action() {
 analyze_disk_usage() {
     echo -e "${CYAN}Analyzing disk usage and cleanup opportunities...${NC}"
     echo ""
-    
+
     local total_potential=0
     local analysis_results=()
-    
+
     # Package manager caches
     echo -e "${WHITE}📦 Package Manager Caches & Cleanup:${NC}"
     if command -v apt >/dev/null 2>&1 && [[ -d /var/cache/apt/archives ]]; then
@@ -284,7 +284,7 @@ analyze_disk_usage() {
         echo -e "   ${GRAY}APT autoremove:${NC} ${GREEN}Available${NC} ${GRAY}(removes unused packages)${NC}"
         total_potential=$((total_potential + 50))  # Estimate 50MB potential from autoremove
     fi
-    
+
     if command -v yum >/dev/null 2>&1 && [[ -d /var/cache/yum ]]; then
         local yum_size=$(get_dir_size_mb "/var/cache/yum")
         if [[ $yum_size -gt 10 ]]; then
@@ -293,7 +293,7 @@ analyze_disk_usage() {
             total_potential=$((total_potential + yum_size))
         fi
     fi
-    
+
     if command -v dnf >/dev/null 2>&1 && [[ -d /var/cache/dnf ]]; then
         local dnf_size=$(get_dir_size_mb "/var/cache/dnf")
         if [[ $dnf_size -gt 10 ]]; then
@@ -305,7 +305,7 @@ analyze_disk_usage() {
         echo -e "   ${GRAY}DNF autoremove:${NC} ${GREEN}Available${NC} ${GRAY}(removes unused packages)${NC}"
         total_potential=$((total_potential + 50))  # Estimate 50MB potential from autoremove
     fi
-    
+
     if command -v yum >/dev/null 2>&1 && [[ -d /var/cache/yum ]]; then
         local yum_size=$(get_dir_size_mb "/var/cache/yum")
         if [[ $yum_size -gt 10 ]]; then
@@ -317,9 +317,9 @@ analyze_disk_usage() {
         echo -e "   ${GRAY}YUM autoremove:${NC} ${GREEN}Available${NC} ${GRAY}(removes unused packages)${NC}"
         total_potential=$((total_potential + 50))  # Estimate 50MB potential from autoremove
     fi
-    
+
     echo ""
-    
+
     # Temporary files
     echo -e "${WHITE}🗂️  Temporary Files:${NC}"
     if [[ -d /tmp ]]; then
@@ -330,7 +330,7 @@ analyze_disk_usage() {
             total_potential=$((total_potential + tmp_size))
         fi
     fi
-    
+
     if [[ -d /var/tmp ]]; then
         local var_tmp_size=$(find /var/tmp -type f -mtime +1 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
         if [[ $var_tmp_size -gt 10 ]]; then
@@ -339,9 +339,9 @@ analyze_disk_usage() {
             total_potential=$((total_potential + var_tmp_size))
         fi
     fi
-    
+
     echo ""
-    
+
     # Log files
     echo -e "${WHITE}📋 Log Files:${NC}"
     local log_size=0
@@ -352,7 +352,7 @@ analyze_disk_usage() {
             echo -e "   ${GRAY}Compressed logs (30+ days):${NC} $(format_size $compressed_logs)"
             log_size=$((log_size + compressed_logs))
         fi
-        
+
         # Old log files
         local old_logs=$(find /var/log -name "*.log.*" -o -name "*.old" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
         if [[ $old_logs -gt 10 ]]; then
@@ -360,14 +360,14 @@ analyze_disk_usage() {
             log_size=$((log_size + old_logs))
         fi
     fi
-    
+
     if [[ $log_size -gt 10 ]]; then
         analysis_results+=("old_logs:$log_size")
         total_potential=$((total_potential + log_size))
     fi
-    
+
     echo ""
-    
+
     # Journal logs
     if command -v journalctl >/dev/null 2>&1; then
         local journal_size=$(journalctl --disk-usage | awk '{print $2}' | sed 's/[^0-9.]//g' | cut -d. -f1)
@@ -377,9 +377,9 @@ analyze_disk_usage() {
             total_potential=$((total_potential + journal_size))
         fi
     fi
-    
+
     echo ""
-    
+
     # Docker cleanup
     if command -v docker >/dev/null 2>&1; then
         echo -e "${WHITE}🐳 Docker Resources:${NC}"
@@ -390,13 +390,13 @@ analyze_disk_usage() {
             total_potential=$((total_potential + docker_size))
         fi
     fi
-    
+
     echo ""
     echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────${NC}"
     echo -e "${GREEN}│${NC} ${BOLD}Total Potential Space Recovery: $(format_size $total_potential)${NC}"
     echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    
+
     # Store results for later use
     ANALYSIS_RESULTS=("${analysis_results[@]}")
     TOTAL_POTENTIAL=$total_potential
@@ -406,7 +406,7 @@ analyze_disk_usage() {
 cleanup_quick() {
     echo -e "${CYAN}Performing quick cleanup...${NC}"
     local space_saved=0
-    
+
     # Package cache cleanup
     if command -v apt >/dev/null 2>&1; then
         comfort_loading "Cleaning APT package cache" 10
@@ -414,47 +414,47 @@ cleanup_quick() {
         apt-get clean >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/apt/archives")
         local apt_cache_saved=$((before_size - after_size))
-        
+
         # Run autoremove for unused packages
         comfort_loading "Removing unused packages (autoremove)" 8
         apt-get autoremove -y >/dev/null 2>&1
-        
+
         space_saved=$((space_saved + apt_cache_saved))
         if [[ $apt_cache_saved -gt 0 ]]; then
             log_cleanup_action "APT cache cleanup" $apt_cache_saved "Package archives removed"
             echo -e "${GREEN}✓ APT cache cleaned: $(format_size $apt_cache_saved)${NC}"
         fi
         echo -e "${GREEN}✓ Unused packages removed (autoremove)${NC}"
-        
+
     elif command -v dnf >/dev/null 2>&1; then
         comfort_loading "Cleaning DNF package cache" 10
         local before_size=$(get_dir_size_mb "/var/cache/dnf")
         sudo dnf clean all >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/dnf")
         local dnf_cache_saved=$((before_size - after_size))
-        
+
         # Run autoremove for unused packages
         comfort_loading "Removing unused packages (autoremove)" 8
         sudo dnf autoremove -y >/dev/null 2>&1
-        
+
         space_saved=$((space_saved + dnf_cache_saved))
         if [[ $dnf_cache_saved -gt 0 ]]; then
             log_cleanup_action "DNF cache cleanup" $dnf_cache_saved "Package archives removed"
             echo -e "${GREEN}✓ DNF cache cleaned: $(format_size $dnf_cache_saved)${NC}"
         fi
         echo -e "${GREEN}✓ Unused packages removed (autoremove)${NC}"
-        
+
     elif command -v yum >/dev/null 2>&1; then
         comfort_loading "Cleaning YUM package cache" 10
         local before_size=$(get_dir_size_mb "/var/cache/yum")
         sudo yum clean all >/dev/null 2>&1
         local after_size=$(get_dir_size_mb "/var/cache/yum")
         local yum_cache_saved=$((before_size - after_size))
-        
+
         # Run autoremove for unused packages
         comfort_loading "Removing unused packages (autoremove)" 8
         sudo yum autoremove -y >/dev/null 2>&1
-        
+
         space_saved=$((space_saved + yum_cache_saved))
         if [[ $yum_cache_saved -gt 0 ]]; then
             log_cleanup_action "YUM cache cleanup" $yum_cache_saved "Package archives removed"
@@ -462,7 +462,7 @@ cleanup_quick() {
         fi
         echo -e "${GREEN}✓ Unused packages removed (autoremove)${NC}"
     fi
-    
+
     # Temp files cleanup - clean old temp files (1+ days) for immediate results
     comfort_loading "Cleaning temporary files" 15
     local temp_saved=0
@@ -475,7 +475,7 @@ cleanup_quick() {
         local tmp_saved=$((temp_before - temp_after))
         temp_saved=$((temp_saved + tmp_saved))
     fi
-    
+
     if [[ -d /var/tmp ]]; then
         local var_temp_before=$(du -sm /var/tmp 2>/dev/null | cut -f1)
         find /var/tmp -type f -mtime +1 -delete 2>/dev/null
@@ -484,13 +484,13 @@ cleanup_quick() {
         local var_temp_saved=$((var_temp_before - var_temp_after))
         temp_saved=$((temp_saved + var_temp_saved))
     fi
-    
+
     space_saved=$((space_saved + temp_saved))
     if [[ $temp_saved -gt 0 ]]; then
         log_cleanup_action "Temp files cleanup" $temp_saved "Files older than 7 days"
         echo -e "${GREEN}✓ Temporary files cleaned: $(format_size $temp_saved)${NC}"
     fi
-    
+
     echo ""
     echo -e "${GREEN}Quick cleanup completed! Total space saved: $(format_size $space_saved)${NC}"
     SPACE_SAVED_MB=$((SPACE_SAVED_MB + space_saved))
@@ -500,14 +500,14 @@ cleanup_quick() {
 cleanup_standard() {
     echo -e "${CYAN}Performing standard cleanup...${NC}"
     local space_saved=0
-    
+
     # First do quick cleanup
     cleanup_quick
     space_saved=$SPACE_SAVED_MB
-    
+
     echo ""
     echo -e "${CYAN}Continuing with additional cleanup...${NC}"
-    
+
     # Log files cleanup
     comfort_loading "Cleaning old log files" 20
     local logs_saved=0
@@ -515,24 +515,24 @@ cleanup_standard() {
         local logs_before=0
         logs_before=$((logs_before + $(find /var/log -name "*.gz" -o -name "*.bz2" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
         logs_before=$((logs_before + $(find /var/log -name "*.log.*" -o -name "*.old" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
-        
+
         find /var/log -name "*.gz" -mtime +30 -delete 2>/dev/null
         find /var/log -name "*.bz2" -mtime +30 -delete 2>/dev/null
         find /var/log -name "*.log.*" -mtime +30 -delete 2>/dev/null
         find /var/log -name "*.old" -mtime +30 -delete 2>/dev/null
-        
+
         local logs_after=0
         logs_after=$((logs_after + $(find /var/log -name "*.gz" -o -name "*.bz2" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
         logs_after=$((logs_after + $(find /var/log -name "*.log.*" -o -name "*.old" -mtime +30 -exec du -sm {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')))
-        
+
         logs_saved=$((logs_before - logs_after))
     fi
-    
+
     if [[ $logs_saved -gt 0 ]]; then
         log_cleanup_action "Log files cleanup" $logs_saved "Logs older than 30 days"
         echo -e "${GREEN}✓ Log files cleaned: $(format_size $logs_saved)${NC}"
     fi
-    
+
     # Journal cleanup
     if command -v journalctl >/dev/null 2>&1; then
         comfort_loading "Cleaning systemd journal" 15
@@ -540,16 +540,16 @@ cleanup_standard() {
         journalctl --vacuum-time=30d >/dev/null 2>&1
         local journal_after=$(journalctl --disk-usage | awk '{print $2}' | sed 's/[^0-9.]//g' | cut -d. -f1)
         local journal_saved=$((journal_before - journal_after))
-        
+
         if [[ $journal_saved -gt 0 ]]; then
             log_cleanup_action "Journal cleanup" $journal_saved "Journals older than 30 days"
             echo -e "${GREEN}✓ Systemd journal cleaned: $(format_size $journal_saved)${NC}"
             logs_saved=$((logs_saved + journal_saved))
         fi
     fi
-    
+
     space_saved=$((space_saved + logs_saved))
-    
+
     # Docker cleanup
     if command -v docker >/dev/null 2>&1; then
         comfort_loading "Cleaning Docker resources" 25
@@ -557,14 +557,14 @@ cleanup_standard() {
         docker system prune -af --volumes >/dev/null 2>&1
         local docker_after=$(docker system df --format "{{.Size}}" 2>/dev/null | grep -v "^$" | awk '{gsub(/[^0-9.]/, ""); sum+=$1} END {print sum+0}')
         local docker_saved=$((docker_before - docker_after))
-        
+
         if [[ $docker_saved -gt 0 ]]; then
             log_cleanup_action "Docker cleanup" $docker_saved "Unused containers, images, and volumes"
             echo -e "${GREEN}✓ Docker resources cleaned: $(format_size $docker_saved)${NC}"
             space_saved=$((space_saved + docker_saved))
         fi
     fi
-    
+
     echo ""
     echo -e "${GREEN}Standard cleanup completed! Total space saved: $(format_size $space_saved)${NC}"
     SPACE_SAVED_MB=$space_saved
@@ -578,10 +578,10 @@ cleanup_custom() {
         echo -e "${CYAN}║                  CUSTOM CLEANUP MENU                   ║${NC}"
         echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        
+
         # Show current status with estimates
         analyze_disk_usage
-        
+
         echo -e "${WHITE}Select cleanup options:${NC}"
         echo ""
         echo -e "${YELLOW}1)${NC} Package manager caches (APT/YUM/DNF)"
@@ -593,10 +593,10 @@ cleanup_custom() {
         echo -e "${YELLOW}7)${NC} Run all selected"
         echo -e "${YELLOW}8)${NC} Back to main menu"
         echo ""
-        
+
         echo -ne "${CYAN}Enter your choices (1-7, multiple allowed):${NC} "
         read -r user_choices
-        
+
         case "$user_choices" in
             *"1"*)
                 echo -e "${CYAN}Cleaning package manager caches...${NC}"
@@ -642,7 +642,7 @@ cleanup_custom() {
                 sleep 2
                 ;;
         esac
-        
+
         if [[ "$user_choices" != *"7"* ]]; then
             echo ""
             echo -e "${GREEN}Custom cleanup in progress. Current total saved: $(format_size $SPACE_SAVED_MB)${NC}"
@@ -656,18 +656,18 @@ cleanup_custom() {
 run_disk_cleanup_interface() {
     # Get current disk usage before cleanup
     local before_usage=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
-    
+
     echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
     echo -e "${CYAN}              DISK CLEANUP & OPTIMIZATION              ${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
     echo ""
-    
+
     echo -e "${WHITE}Current disk usage:${NC} ${YELLOW}${before_usage}%${NC}"
     echo ""
-    
+
     # Analyze what can be cleaned
     analyze_disk_usage
-    
+
     # Only show cleanup options if there's meaningful space to recover
     if [[ $TOTAL_POTENTIAL -lt $((MIN_SPACE_THRESHOLD_MB / 1024)) ]]; then
         echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────${NC}"
@@ -676,7 +676,7 @@ run_disk_cleanup_interface() {
         echo ""
         return 0
     fi
-    
+
     # Show cleanup menu
     echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
     echo -e "${MAGENTA}│${NC} ${WHITE}Select cleanup level:${NC}"
@@ -690,7 +690,7 @@ run_disk_cleanup_interface() {
     read -r cleanup_choice
     echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    
+
     case "$cleanup_choice" in
         1)
             echo -e "${CYAN}Starting quick cleanup...${NC}"
@@ -717,24 +717,24 @@ run_disk_cleanup_interface() {
             return 0
             ;;
     esac
-    
+
     # Show after cleanup results
     if [[ "$CLEANUP_PERFORMED" = true ]]; then
         local after_usage=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
         local usage_improvement=$((before_usage - after_usage))
-        
+
         echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
         echo -e "${GREEN}                    CLEANUP SUMMARY                    ${NC}"
         echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
         echo -e "${GREEN}│${NC} ${WHITE}Space recovered:${NC} ${BOLD}$(format_size $SPACE_SAVED_MB)${NC}"
         echo -e "${GREEN}│${NC} ${WHITE}Disk usage change:${NC} ${before_usage}% → ${after_usage}% ${GRAY}(${usage_improvement}% improvement)${NC}"
-        
+
         if [[ -n "$CLEANUP_LOG_FILE" && -f "$CLEANUP_LOG_FILE" ]]; then
             echo -e "${GREEN}│${NC} ${WHITE}Cleanup log:${NC} ${GRAY}$CLEANUP_LOG_FILE${NC}"
         fi
         echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
         echo ""
-        
+
         # Clean up old backup directories
         find /tmp -name "linwatch_backup_*" -mtime +$BACKUP_RETENTION_DAYS -exec rm -rf {} + 2>/dev/null
         find /tmp -name "linwatch_cleanup_*.log" -mtime +$BACKUP_RETENTION_DAYS -delete 2>/dev/null
@@ -746,7 +746,7 @@ welcome_animation() {
     clear
     local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     local colors=("$CYAN" "$BLUE" "$GREEN" "$MAGENTA" "$YELLOW")
-    
+
     for i in {1..20}; do
         frame=${frames[$((i % 10))]}
         color=${colors[$((i % 5))]}
@@ -777,7 +777,7 @@ show_welcome_header() {
 comfort_loading() {
     local message="$1"
     local duration="$2"
-    
+
     echo -ne "${CYAN}$message${NC} "
     local chars=("⠁" "⠂" "⠄" "⡀" "⢀" "⠠" "⠐" "⠈")
     for i in $(seq 1 $duration); do
@@ -792,17 +792,17 @@ comfort_loading() {
 main_welcome() {
     welcome_animation
     show_welcome_header
-    
+
     echo -e "${BOLD}${WHITE}Welcome to LinWatch!${NC}"
     echo -e "${GRAY}Your cozy companion for Linux system monitoring and maintenance.${NC}"
     echo ""
-    
+
     comfort_loading "Preparing system diagnostics" 15
     comfort_loading "Loading security modules" 12
     comfort_loading "Initializing update checker" 10
-    
+
     echo ""
-    
+
     # Check for LinWatch updates
     echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
     echo -e "${MAGENTA}│${NC} ${WHITE}Check for LinWatch application updates?${NC}"
@@ -812,14 +812,14 @@ main_welcome() {
     echo -e "${MAGENTA}│${NC}"
     echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    
+
     if [[ "$LINWATCH_UPDATE_RESPONSE" =~ ^[Yy]$ ]]; then
         check_linwatch_updates
         echo ""
     fi
     echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
     echo -e "${MAGENTA}│${NC} ${BOLD}${WHITE}Let's make your system feel great today!${NC}"
-    echo -e "${MAGENTA}└─────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${MAGENTA}└──────────────────────────────────────────────────────────────────${NC}"
     echo ""
     sleep 2
 }
@@ -865,7 +865,7 @@ space=$(printf "%0.s░" $(seq 1 $empty))
 
 echo -e "${CYAN}│${NC} ${WHITE}RAM Usage:${NC} ${bar_color}[${bar}${space}]${NC} ${WHITE}${used_percent}%${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Details:${NC} ${GRAY}Used: ${used} / Total: ${total} (Available: ${available})${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Disk Usage with enhanced visualization
@@ -890,7 +890,7 @@ space=$(printf "%0.s░" $(seq 1 $empty))
 
 echo -e "${CYAN}│${NC} ${WHITE}Root Partition:${NC} ${bar_color}[${bar}${space}]${NC} ${WHITE}${perc} used${NC}"
 echo -e "${CYAN}│${NC} ${WHITE}Details:${NC} ${GRAY}Used: ${used} / Total: ${size} (Available: ${avail})${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # Uptime with enhanced display
@@ -920,7 +920,7 @@ else
     echo -e "${CYAN}│${NC} ${WHITE}Public IP:${NC} ${RED}curl not installed${NC}"
 fi
 
-echo -e "${CYAN}└─────────────────────────────────────────────────────────────────${NC}"
+echo -e "${CYAN}└──────────────────────────────────────────────────────────────────${NC}"
 echo ""
 
 # User Information with enhanced display
@@ -1117,7 +1117,7 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
             # Mark that updates were installed
             UPDATES_INSTALLED=true
             echo -e "${GREEN}Updates installed successfully!${NC}"
-            
+
             # Check for Flatpak installation and update Flatpak packages
             if command -v flatpak >/dev/null 2>&1; then
                 echo -e "${CYAN}Flatpak detected, checking for Flatpak updates...${NC}"
@@ -1136,9 +1136,9 @@ if [[ "$USER_RESPONSE" =~ ^[Yy]$ ]]; then
             echo ""
         fi
     else
-        echo -e "${GREEN}┌─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "${GREEN}┌──────────────────────────────────────────────────────────────────${NC}"
         echo -e "${GREEN}│${NC} ${WHITE}No updates available. Your system is up to date!${NC}"
-        echo -e "${GREEN}└─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "${GREEN}└──────────────────────────────────────────────────────────────────${NC}"
         echo ""
     fi
 
@@ -1387,7 +1387,7 @@ EOF
         echo -e "${CYAN}Running ClamAV malware scan...${NC}"
         echo "## 11. ClamAV Malware Scan" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
-        
+
         # Update virus definitions
         echo "### Virus Definition Update" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
@@ -1404,12 +1404,12 @@ EOF
         fi
         echo '```' >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
-        
+
         # Start ClamAV services for current session only
         echo "### Service Management (Current Session)" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
         SERVICE_STARTED=false
-        
+
         if command -v systemctl >/dev/null 2>&1; then
             # Try common service names
             for service in "clamav-daemon" "clamav" "clamd"; do
@@ -1431,7 +1431,7 @@ EOF
                     fi
                 fi
             done
-            
+
             if [ "$SERVICE_STARTED" = false ]; then
                 echo "ℹ️ No ClamAV service found, using scanner only" >> "$AUDIT_FILE"
             fi
@@ -1440,17 +1440,17 @@ EOF
         fi
         echo '```' >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
-        
+
         # Scan critical directories with threat-only output
         echo "### Critical Directories Scan" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
         echo "Scanning critical directories for malware..." >> "$AUDIT_FILE"
-        
+
         # Define critical directories to scan
         SCAN_DIRS="/home /tmp /var/www /usr/local/bin /var/tmp"
         THREATS_FOUND=false
         THREAT_COUNT=0
-        
+
         for dir in $SCAN_DIRS; do
             if [ -d "$dir" ]; then
                 echo "Scanning $dir..." >> "$AUDIT_FILE"
@@ -1463,10 +1463,10 @@ EOF
                 fi
             fi
         done
-        
+
         echo '```' >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
-        
+
         # Scan Summary
         echo "### Scan Summary" >> "$AUDIT_FILE"
         if [ "$THREATS_FOUND" = true ]; then
@@ -1475,7 +1475,7 @@ EOF
         else
             echo "✅ **No threats detected in critical directories**" >> "$AUDIT_FILE"
         fi
-        
+
         # Scan Statistics
         echo "" >> "$AUDIT_FILE"
         echo "**Scan Statistics:**" >> "$AUDIT_FILE"
