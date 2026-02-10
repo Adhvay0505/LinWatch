@@ -1202,13 +1202,24 @@ perform_security_audit() {
     echo -e "${YELLOW}This may take several minutes. Audit report will be saved to: $AUDIT_FILE${NC}"
     echo ""
 
-    # Start markdown report
+    # Security counters for summary
+    declare -A SECURITY_SCORES=(
+        ["ssh_issues"]=0
+        ["firewall_issues"]=0
+        ["user_issues"]=0
+        ["permission_issues"]=0
+        ["malware_issues"]=0
+        ["total_issues"]=0
+    )
+
+    # Start enhanced markdown report with better header
     cat > "$AUDIT_FILE" << EOF
-# LinWatch Security Audit Report
-**Generated:** $(date)
-**Hostname:** $(hostname)
-**Kernel:** $(uname -r)
-**Distribution:** $DISTRO
+# 🛡️ LinWatch Security Audit Report
+
+**Generated:** $(date)  
+**Hostname:** $(hostname)  
+**Kernel:** $(uname -r)  
+**Distribution:** $DISTRO  
 
 ---
 
@@ -1231,319 +1242,1110 @@ EOF
         CLAMAV_INSTALLED=true
     fi
 
-    # Section 1: System Information
-    echo "## 1. System Information" >> "$AUDIT_FILE"
+    # Enhanced Section 1: System Information with better formatting
+    echo "## 📊 System Overview" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    echo "- **Uptime:** $(uptime -p)" >> "$AUDIT_FILE"
-    echo "- **Last Reboot:** $(who -b | awk '{print $3, $4}')" >> "$AUDIT_FILE"
-    echo "- **Current User:** $(whoami)" >> "$AUDIT_FILE"
-    echo "" >> "$AUDIT_FILE"
-
-    # Section 2: User Accounts
-    echo "## 2. User Account Analysis" >> "$AUDIT_FILE"
-    echo "" >> "$AUDIT_FILE"
-    echo "### Users with Login Shell" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
-    grep -E '/bin/(bash|sh|zsh|fish)' /etc/passwd >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    echo "| Property | Value |" >> "$AUDIT_FILE"
+    echo "|----------|-------|" >> "$AUDIT_FILE"
+    echo "| ⏰ **Uptime** | $(uptime -p) |" >> "$AUDIT_FILE"
+    echo "| 🔄 **Last Reboot** | $(who -b | awk '{print $3, $4}') |" >> "$AUDIT_FILE"
+    echo "| 👤 **Current User** | $(whoami) |" >> "$AUDIT_FILE"
+    echo "| 💻 **CPU Cores** | $(nproc 2>/dev/null || echo "Unknown") |" >> "$AUDIT_FILE"
+    echo "| 🧠 **Memory** | $(free -h | awk '/^Mem:/ {print $2 "/" $3 " used"}') |" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
-    echo "### Users with UID 0 (Root Privileges)" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
-    awk -F: '($3 == 0) {print $1}' /etc/passwd >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    # Enhanced Section 2: User Accounts with security analysis
+    echo "## 👥 User Account Security" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
+    # Users with login shells in table format
+    echo "### Users with Login Shells" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "| Username | UID | Home Directory | Shell |" >> "$AUDIT_FILE"
+    echo "|----------|-----|----------------|-------|" >> "$AUDIT_FILE"
+    
+    LOGIN_USERS=$(grep -E '/bin/(bash|sh|zsh|fish)' /etc/passwd)
+    while IFS=':' read -r user pass uid gid dir shell; do
+        if [[ "$shell" =~ /(bash|sh|zsh|fish)$ ]]; then
+            echo "| $user | $uid | $dir | $shell |" >> "$AUDIT_FILE"
+        fi
+    done <<< "$LOGIN_USERS"
+    echo "" >> "$AUDIT_FILE"
+
+    # Root privilege users with security assessment
+    echo "### Users with Root Privileges (UID 0)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    ROOT_USERS=$(awk -F: '($3 == 0) {print $1":"$6}' /etc/passwd)
+    if [ -n "$ROOT_USERS" ]; then
+        echo "| Username | Home Directory | Risk Level |" >> "$AUDIT_FILE"
+        echo "|----------|----------------|------------|" >> "$AUDIT_FILE"
+        while IFS=':' read -r user homedir; do
+            if [ "$user" = "root" ]; then
+                echo "| $user | $homedir | ✅ Expected |" >> "$AUDIT_FILE"
+            else
+                echo "| $user | $homedir | ⚠️ Review needed |" >> "$AUDIT_FILE"
+                SECURITY_SCORES[user_issues]=$((SECURITY_SCORES[user_issues] + 1))
+            fi
+        done <<< "$ROOT_USERS"
+    else
+        echo "✅ No root privilege users found (unusual)" >> "$AUDIT_FILE"
+    fi
+    echo "" >> "$AUDIT_FILE"
+
+    # Password-less accounts
     echo "### Accounts Without Passwords" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
-    sudo awk -F: '($2 == "" ) {print $1}' /etc/shadow 2>/dev/null >> "$AUDIT_FILE" || echo "Permission denied" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    NO_PASS_USERS=$(sudo awk -F: '($2 == "" ) {print $1}' /etc/shadow 2>/dev/null)
+    if [ -n "$NO_PASS_USERS" ]; then
+        echo "⚠️ **CRITICAL:** Found accounts without passwords:" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "| Username | Action Required |" >> "$AUDIT_FILE"
+        echo "|----------|-----------------|" >> "$AUDIT_FILE"
+        echo "$NO_PASS_USERS" | while read user; do
+            echo "| $user | 🔐 Set password immediately |" >> "$AUDIT_FILE"
+            SECURITY_SCORES[user_issues]=$((SECURITY_SCORES[user_issues] + 1))
+        done
+    else
+        echo "✅ All accounts have passwords configured" >> "$AUDIT_FILE"
+    fi
     echo "" >> "$AUDIT_FILE"
 
-    # Section 3: Open Ports and Services
-    echo "## 3. Network Security" >> "$AUDIT_FILE"
+    # Enhanced Section 3: Network Security with risk assessment
+    echo "## 🔥 Network Security Analysis" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    echo "### Listening Ports" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+
+    # Listening ports with risk assessment
+    echo "### Listening Services (Risk Assessment)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
     if command -v ss >/dev/null 2>&1; then
-        ss -tulpn | grep LISTEN >> "$AUDIT_FILE"
+        echo "| Port | Protocol | Service | User | Risk Level |" >> "$AUDIT_FILE"
+        echo "|------|----------|---------|------|------------|" >> "$AUDIT_FILE"
+        
+        ss -tulpn | grep LISTEN | while read line; do
+            PORT=$(echo "$line" | awk '{print $4}' | sed 's/.*://' | cut -d':' -f2)
+            PROTO=$(echo "$line" | awk '{print $1}')
+            SERVICE=$(echo "$line" | awk '{print $7}' | sed 's/.*"\([^"]*\)".*/\1/' | sed 's/users:"//')
+            USER=$(echo "$line" | awk '{print $7}' | sed 's/users:"//; s/".*//')
+            
+            # Risk assessment
+            RISK="🟢 Low"
+            case "$PORT" in
+                22) RISK="🟡 Medium (SSH)" ;;
+                23) RISK="🔴 High (Telnet)" ;;
+                80|443) RISK="🟡 Medium (HTTP/HTTPS)" ;;
+                3306) RISK="🟡 Medium (MySQL)" ;;
+                5432) RISK="🟡 Medium (PostgreSQL)" ;;
+                3389) RISK="🟡 Medium (RDP)" ;;
+            esac
+            
+            echo "| $PORT | $PROTO | ${SERVICE:-Unknown} | ${USER:-Unknown} | $RISK |" >> "$AUDIT_FILE"
+        done
     elif command -v netstat >/dev/null 2>&1; then
+        echo '```' >> "$AUDIT_FILE"
         netstat -tulpn | grep LISTEN >> "$AUDIT_FILE"
+        echo '```' >> "$AUDIT_FILE"
     fi
-    echo '```' >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
-    echo "### Active Network Connections" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    # Active connections summary
+    echo "### Network Connections Summary" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
     if command -v ss >/dev/null 2>&1; then
-        ss -tunp 2>/dev/null | head -20 >> "$AUDIT_FILE"
-    elif command -v netstat >/dev/null 2>&1; then
-        netstat -tunp 2>/dev/null | head -20 >> "$AUDIT_FILE"
+        ESTABLISHED=$(ss -tunp 2>/dev/null | grep ESTAB | wc -l)
+        LISTENING=$(ss -tunp 2>/dev/null | grep LISTEN | wc -l)
+        echo "- **Established Connections:** $ESTABLISHED" >> "$AUDIT_FILE"
+        echo "- **Listening Services:** $LISTENING" >> "$AUDIT_FILE"
+        
+        # Show suspicious connections (many connections from same IP)
+        echo "" >> "$AUDIT_FILE"
+        echo "### Top Connection Sources" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        ss -tunp 2>/dev/null | grep ESTAB | awk '{print $6}' | sed 's/.*://' | sort | uniq -c | sort -nr | head -5 | while read count ip; do
+            if [ "$count" -gt 10 ]; then
+                echo "| $ip | $count connections | ⚠️ High activity |" >> "$AUDIT_FILE"
+            else
+                echo "| $ip | $count connections | 🟢 Normal |" >> "$AUDIT_FILE"
+            fi
+        done
     fi
-    echo '```' >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
-    # Section 4: Firewall Status
-    echo "## 4. Firewall Status" >> "$AUDIT_FILE"
+    # Enhanced Section 4: Firewall Status with security assessment
+    echo "## 🔥 Firewall Security Status" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
+
+    FIREWALL_ACTIVE=false
+    FIREWALL_TYPE="None"
 
     if command -v ufw >/dev/null 2>&1; then
-        echo "### UFW Status" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
-        sudo ufw status verbose >> "$AUDIT_FILE" 2>/dev/null
-        echo '```' >> "$AUDIT_FILE"
+        FIREWALL_TYPE="UFW"
+        UFW_STATUS=$(sudo ufw status 2>/dev/null)
+        if echo "$UFW_STATUS" | grep -q "Status: active"; then
+            FIREWALL_ACTIVE=true
+            echo "### 🛡️ UFW Firewall Status: **ACTIVE** ✅" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            
+            # Parse UFW rules into readable format
+            echo "| Action | From | To | Port | Protocol |" >> "$AUDIT_FILE"
+            echo "|--------|------|-----|------|----------|" >> "$AUDIT_FILE"
+            echo "$UFW_STATUS" | grep -E "^[0-9]+" | while read line; do
+                ACTION=$(echo "$line" | awk '{print $2}')
+                FROM=$(echo "$line" | awk '{print $4}')
+                TO=$(echo "$line" | awk '{print $6}')
+                PORT=$(echo "$line" | awk '{print $7}')
+                
+                echo "| $ACTION | $FROM | $TO | $PORT | Any |" >> "$AUDIT_FILE"
+            done
+        else
+            echo "### ⚠️ UFW Firewall Status: **INACTIVE**" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            echo "**Risk:** Network traffic is not being filtered" >> "$AUDIT_FILE"
+            SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
+        fi
+        echo "" >> "$AUDIT_FILE"
+        
     elif command -v firewall-cmd >/dev/null 2>&1; then
-        echo "### Firewalld Status" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
-        sudo firewall-cmd --state >> "$AUDIT_FILE" 2>/dev/null
-        sudo firewall-cmd --list-all >> "$AUDIT_FILE" 2>/dev/null
-        echo '```' >> "$AUDIT_FILE"
+        FIREWALL_TYPE="Firewalld"
+        if sudo firewall-cmd --state >/dev/null 2>&1; then
+            FIREWALL_ACTIVE=true
+            echo "### 🛡️ Firewalld Status: **RUNNING** ✅" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            
+            # Get active zones
+            echo "| Zone | Services | Ports |" >> "$AUDIT_FILE"
+            echo "|------|----------|-------|" >> "$AUDIT_FILE"
+            sudo firewall-cmd --get-active-zones 2>/dev/null | while read zone; do
+                if [[ "$zone" =~ ^[a-zA-Z] ]]; then
+                    ZONE_NAME="$zone"
+                    SERVICES=$(sudo firewall-cmd --zone="$ZONE_NAME" --list-services 2>/dev/null)
+                    PORTS=$(sudo firewall-cmd --zone="$ZONE_NAME" --list-ports 2>/dev/null)
+                    echo "| $ZONE_NAME | ${ SERVICES// /, } | ${ PORTS// /, } |" >> "$AUDIT_FILE"
+                fi
+            done
+        else
+            echo "### ⚠️ Firewalld Status: **NOT RUNNING**" >> "$AUDIT_FILE"
+            SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
+        fi
+        echo "" >> "$AUDIT_FILE"
+        
     elif command -v iptables >/dev/null 2>&1; then
-        echo "### IPTables Rules" >> "$AUDIT_FILE"
+        FIREWALL_TYPE="IPTables"
+        RULES_COUNT=$(sudo iptables -L | grep -c "^Chain\|^[A-Z]" 2>/dev/null)
+        if [ "$RULES_COUNT" -gt 3 ]; then
+            FIREWALL_ACTIVE=true
+            echo "### 🛡️ IPTables Status: **RULES CONFIGURED** ✅" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            echo "- **Number of rules:** $RULES_COUNT" >> "$AUDIT_FILE"
+            echo "- **Default policy:** $(sudo iptables -L | grep "Chain INPUT" | awk '{print $4}')" >> "$AUDIT_FILE"
+        else
+            echo "### ⚠️ IPTables Status: **MINIMAL RULES**" >> "$AUDIT_FILE"
+            SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
+        fi
+        
+        echo "" >> "$AUDIT_FILE"
+        echo "**Sample Rules (showing first 10):**" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
-        sudo iptables -L -n -v >> "$AUDIT_FILE" 2>/dev/null
+        sudo iptables -L -n -v | head -20 >> "$AUDIT_FILE" 2>/dev/null
         echo '```' >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
     else
-        echo "**No firewall detected or not accessible**" >> "$AUDIT_FILE"
+        echo "### ❌ No Firewall Detected" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "**Recommendation:** Install and configure a firewall (ufw, firewalld, or iptables)" >> "$AUDIT_FILE"
+        SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 2))
     fi
     echo "" >> "$AUDIT_FILE"
 
-    # Section 5: SSH Configuration
-    echo "## 5. SSH Security" >> "$AUDIT_FILE"
+    # Enhanced Section 5: SSH Security with detailed analysis
+    echo "## 🔐 SSH Security Configuration" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
+    
     if [ -f /etc/ssh/sshd_config ]; then
-        echo "### Key SSH Settings" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
-        grep -E '^(PermitRootLogin|PasswordAuthentication|PubkeyAuthentication|Port|AllowUsers|DenyUsers)' /etc/ssh/sshd_config 2>/dev/null >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
+        echo "### SSH Security Settings Analysis" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "| Setting | Current Value | Security Status | Recommendation |" >> "$AUDIT_FILE"
+        echo "|---------|---------------|-----------------|----------------|" >> "$AUDIT_FILE"
+        
+        # Check SSH port
+        SSH_PORT=$(grep "^Port" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+        SSH_PORT=${SSH_PORT:-22}
+        if [ "$SSH_PORT" = "22" ]; then
+            echo "| Port | $SSH_PORT | 🟡 Standard | Consider changing to non-standard port |" >> "$AUDIT_FILE"
+        else
+            echo "| Port | $SSH_PORT | ✅ Custom | Good security practice |" >> "$AUDIT_FILE"
+        fi
+        
+        # Check root login
+        ROOT_LOGIN=$(grep "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        ROOT_LOGIN=${ROOT_LOGIN:-prohibit-password}
+        case "$ROOT_LOGIN" in
+            "no")
+                echo "| Root Login | $ROOT_LOGIN | ✅ Secure | Perfect |" >> "$AUDIT_FILE" ;;
+            "prohibit-password")
+                echo "| Root Login | $ROOT_LOGIN | 🟡 Medium | Keys only, consider 'no' |" >> "$AUDIT_FILE" ;;
+            "yes")
+                echo "| Root Login | $ROOT_LOGIN | ❌ Insecure | Disable immediately! |" >> "$AUDIT_FILE"
+                SECURITY_SCORES[ssh_issues]=$((SECURITY_SCORES[ssh_issues] + 2)) ;;
+            *)
+                echo "| Root Login | $ROOT_LOGIN | ⚠️ Unknown | Review setting |" >> "$AUDIT_FILE" ;;
+        esac
+        
+        # Check password authentication
+        PASS_AUTH=$(grep "^PasswordAuthentication" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        PASS_AUTH=${PASS_AUTH:-yes}
+        if [ "$PASS_AUTH" = "no" ]; then
+            echo "| Password Auth | $PASS_AUTH | ✅ Secure | Key-based only |" >> "$AUDIT_FILE"
+        else
+            echo "| Password Auth | $PASS_AUTH | ⚠️ Risky | Disable if using keys |" >> "$AUDIT_FILE"
+            SECURITY_SCORES[ssh_issues]=$((SECURITY_SCORES[ssh_issues] + 1))
+        fi
+        
+        # Check public key authentication
+        PUBKEY_AUTH=$(grep "^PubkeyAuthentication" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        PUBKEY_AUTH=${PUBKEY_AUTH:-yes}
+        if [ "$PUBKEY_AUTH" = "yes" ]; then
+            echo "| Public Key Auth | $PUBKEY_AUTH | ✅ Enabled | Good security practice |" >> "$AUDIT_FILE"
+        else
+            echo "| Public Key Auth | $PUBKEY_AUTH | ⚠️ Disabled | Consider enabling |" >> "$AUDIT_FILE"
+        fi
+        
+        echo "" >> "$AUDIT_FILE"
+        
+        # Additional SSH security analysis
+        echo "### Additional SSH Security Analysis" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Check for allowed/denied users
+        ALLOW_USERS=$(grep "^AllowUsers" /etc/ssh/sshd_config 2>/dev/null)
+        DENY_USERS=$(grep "^DenyUsers" /etc/ssh/sshd_config 2>/dev/null)
+        
+        if [ -n "$ALLOW_USERS" ]; then
+            echo "- **User Restrictions:** ✅ AllowUsers configured: \`$ALLOW_USERS\`" >> "$AUDIT_FILE"
+        elif [ -n "$DENY_USERS" ]; then
+            echo "- **User Restrictions:** 🟡 DenyUsers configured: \`$DENY_USERS\`" >> "$AUDIT_FILE"
+        else
+            echo "- **User Restrictions:** ⚠️ No user access restrictions configured" >> "$AUDIT_FILE"
+            SECURITY_SCORES[ssh_issues]=$((SECURITY_SCORES[ssh_issues] + 1))
+        fi
+        
+        # Check protocol version
+        PROTOCOL=$(grep "^Protocol" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        PROTOCOL=${PROTOCOL:-2}
+        if [ "$PROTOCOL" = "2" ]; then
+            echo "- **Protocol Version:** ✅ SSH-2 (secure)" >> "$AUDIT_FILE"
+        else
+            echo "- **Protocol Version:** ⚠️ SSH-1 (insecure) - Upgrade to SSH-2" >> "$AUDIT_FILE"
+            SECURITY_SCORES[ssh_issues]=$((SECURITY_SCORES[ssh_issues] + 1))
+        fi
+        
     else
-        echo "**SSH config not found**" >> "$AUDIT_FILE"
+        echo "### ❌ SSH Configuration Not Found" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "**Possible Reasons:**" >> "$AUDIT_FILE"
+        echo "- SSH server not installed" >> "$AUDIT_FILE"
+        echo "- SSH daemon using different configuration path" >> "$AUDIT_FILE"
+        echo "- Insufficient permissions to read config" >> "$AUDIT_FILE"
     fi
     echo "" >> "$AUDIT_FILE"
 
-    # Section 6: File Permissions (SUID/SGID)
-    echo "## 6. Suspicious File Permissions" >> "$AUDIT_FILE"
+    # Enhanced Section 6: File Permissions with security context
+    echo "## 📁 File Permissions Security" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    echo "### SUID Files (First 20)" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
-    sudo find / -perm -4000 -type f 2>/dev/null | head -20 >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    
+    # SUID Files Analysis
+    echo "### SUID Executables (Elevated Privilege Files)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    SUID_FILES=$(sudo find / -perm -4000 -type f 2>/dev/null | head -20)
+    if [ -n "$SUID_FILES" ]; then
+        echo "| File Path | Expected | Risk Level | Action |" >> "$AUDIT_FILE"
+        echo "|-----------|----------|------------|--------|" >> "$AUDIT_FILE"
+        
+        echo "$SUID_FILES" | while read file; do
+            BASENAME=$(basename "$file")
+            RISK="🟡 Medium"
+            EXPECTED="⚠️ Review"
+            ACTION="Investigate"
+            
+            case "$BASENAME" in
+                passwd|sudo|su|ping|mount|umount)
+                    RISK="🟢 Low"
+                    EXPECTED="✅ Expected"
+                    ACTION="Keep" ;;
+                chmod|chown|find)
+                    RISK="🟡 Medium"
+                    EXPECTED="⚠️ Review"
+                    ACTION="Verify needed" ;;
+                *)
+                    RISK="🔴 High"
+                    EXPECTED="❌ Unexpected"
+                    ACTION="Remove if unnecessary" ;;
+            esac
+            
+            echo "| $file | $EXPECTED | $RISK | $ACTION |" >> "$AUDIT_FILE"
+            if [[ "$RISK" =~ "High|Medium" ]]; then
+                SECURITY_SCORES[permission_issues]=$((SECURITY_SCORES[permission_issues] + 1))
+            fi
+        done
+    else
+        echo "✅ **No SUID files found** (unusual but secure)" >> "$AUDIT_FILE"
+    fi
+    echo "" >> "$AUDIT_FILE"
+    
+    # World-Writable Files Analysis
+    echo "### World-Writable Files (Security Risk)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    WRITABLE_FILES=$(sudo find / -xdev -type f -perm -0002 2>/dev/null | head -15)
+    if [ -n "$WRITABLE_FILES" ]; then
+        echo "⚠️ **CRITICAL SECURITY RISK:** Found world-writable files:" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "| File Path | Directory | Severity | Recommended Action |" >> "$AUDIT_FILE"
+        echo "|-----------|-----------|-----------|-------------------|" >> "$AUDIT_FILE"
+        
+        echo "$WRITABLE_FILES" | while read file; do
+            DIR=$(dirname "$file")
+            SEVERITY="🔴 Critical"
+            ACTION="Restrict permissions immediately"
+            
+            # Check if it's in a system directory
+            if [[ "$DIR" =~ ^/(etc|bin|sbin|usr|lib|var) ]]; then
+                SEVERITY="🔴 Critical"
+                ACTION="Remove or secure immediately"
+            elif [[ "$DIR" =~ ^/(tmp|var/tmp|home) ]]; then
+                SEVERITY="🟡 Medium"
+                ACTION="Review and restrict if needed"
+            fi
+            
+            echo "| $file | $DIR | $SEVERITY | $ACTION |" >> "$AUDIT_FILE"
+            SECURITY_SCORES[permission_issues]=$((SECURITY_SCORES[permission_issues] + 1))
+        done
+    else
+        echo "✅ **No world-writable files found** - Good security practice" >> "$AUDIT_FILE"
+    fi
+    echo "" >> "$AUDIT_FILE"
+    
+    # Additional permission checks
+    echo "### Additional Permission Analysis" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    # Check critical file permissions
+    echo "#### Critical System Files Permissions" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "| File | Expected Permissions | Current Permissions | Status |" >> "$AUDIT_FILE"
+    echo "|------|---------------------|---------------------|--------|" >> "$AUDIT_FILE"
+    
+    CRITICAL_FILES=("/etc/passwd" "/etc/shadow" "/etc/group" "/etc/gshadow" "/etc/sudoers")
+    for file in "${CRITICAL_FILES[@]}"; do
+        if [ -f "$file" ]; then
+            CURRENT_PERM=$(stat -c "%A" "$file" 2>/dev/null)
+            case "$file" in
+                "/etc/passwd")
+                    if [[ "$CURRENT_PERM" =~ ^-rw.*r.*r.* ]]; then
+                        STATUS="✅ OK"
+                    else
+                        STATUS="⚠️ Review"
+                        SECURITY_SCORES[permission_issues]=$((SECURITY_SCORES[permission_issues] + 1))
+                    fi ;;
+                "/etc/shadow"|"/etc/gshadow")
+                    if [[ "$CURRENT_PERM" =~ ^-rw.*------.* ]]; then
+                        STATUS="✅ OK"
+                    else
+                        STATUS="🔴 Insecure"
+                        SECURITY_SCORES[permission_issues]=$((SECURITY_SCORES[permission_issues] + 1))
+                    fi ;;
+                "/etc/sudoers")
+                    if [[ "$CURRENT_PERM" =~ ^-r.*r.*-.* ]]; then
+                        STATUS="✅ OK"
+                    else
+                        STATUS="⚠️ Review"
+                        SECURITY_SCORES[permission_issues]=$((SECURITY_SCORES[permission_issues] + 1))
+                    fi ;;
+                *)
+                    STATUS="⚠️ Unknown" ;;
+            esac
+            echo "| $file | Depends | $CURRENT_PERM | $STATUS |" >> "$AUDIT_FILE"
+        fi
+    done
     echo "" >> "$AUDIT_FILE"
 
-    echo "### World-Writable Files (First 20)" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
-    sudo find / -xdev -type f -perm -0002 2>/dev/null | head -20 >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    # Enhanced Section 7: Authentication Security with analysis
+    echo "## 🔐 Authentication Security Analysis" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-
-    # Section 7: Failed Login Attempts
-    echo "## 7. Authentication Security" >> "$AUDIT_FILE"
+    
+    # Failed login attempts analysis
+    echo "### Failed Login Attempts Analysis" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    echo "### Recent Failed Login Attempts" >> "$AUDIT_FILE"
-    echo '```' >> "$AUDIT_FILE"
+    
     if [ -f /var/log/auth.log ]; then
-        sudo grep "Failed password" /var/log/auth.log 2>/dev/null | tail -10 >> "$AUDIT_FILE"
+        FAILED_LOGINS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | tail -20)
+        if [ -n "$FAILED_LOGINS" ]; then
+            echo "| Date | User | Source IP | Service |" >> "$AUDIT_FILE"
+            echo "|------|------|-----------|---------|" >> "$AUDIT_FILE"
+            
+            echo "$FAILED_LOGINS" | while read line; do
+                DATE=$(echo "$line" | awk '{print $1, $2, $3}')
+                USER=$(echo "$line" | grep -o "for [^ ]*" | cut -d' ' -f2)
+                IP=$(echo "$line" | grep -o "from [^ ]*" | cut -d' ' -f2)
+                SERVICE=$(echo "$line" | grep -o "sshd\[[0-9]*\]")
+                
+                echo "| $DATE | ${USER:-unknown} | ${IP:-unknown} | ${SERVICE:-ssh} |" >> "$AUDIT_FILE"
+            done
+            
+            # Attack pattern analysis
+            echo "" >> "$AUDIT_FILE"
+            echo "#### Attack Pattern Analysis" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            
+            # Count attempts by IP
+            ATTACKER_IPS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | grep -o "from [^ ]*" | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -5)
+            if [ -n "$ATTACKER_IPS" ]; then
+                echo "| Source IP | Failed Attempts | Risk Level |" >> "$AUDIT_FILE"
+                echo "|-----------|-----------------|------------|" >> "$AUDIT_FILE"
+                
+                echo "$ATTACKER_IPS" | while read count ip; do
+                    if [ "$count" -gt 50 ]; then
+                        RISK="🔴 High (Possible Brute Force)"
+                    elif [ "$count" -gt 10 ]; then
+                        RISK="🟡 Medium"
+                    else
+                        RISK="🟢 Low"
+                    fi
+                    echo "| $ip | $count | $RISK |" >> "$AUDIT_FILE"
+                    
+                    if [ "$count" -gt 10 ]; then
+                        SECURITY_SCORES[user_issues]=$((SECURITY_SCORES[user_issues] + 1))
+                    fi
+                done
+            fi
+            
+            # Count attempts by username
+            TARGETED_USERS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | grep -o "for [^ ]*" | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -5)
+            if [ -n "$TARGETED_USERS" ]; then
+                echo "" >> "$AUDIT_FILE"
+                echo "**Most Targeted Users:**" >> "$AUDIT_FILE"
+                echo "" >> "$AUDIT_FILE"
+                echo "$TARGETED_USERS" | while read count user; do
+                    echo "- **$user:** $count failed attempts" >> "$AUDIT_FILE"
+                done
+            fi
+            
+        else
+            echo "✅ **No failed login attempts found in recent logs**" >> "$AUDIT_FILE"
+        fi
+        
     elif [ -f /var/log/secure ]; then
-        sudo grep "Failed password" /var/log/secure 2>/dev/null | tail -10 >> "$AUDIT_FILE"
+        FAILED_LOGINS=$(sudo grep "Failed password" /var/log/secure 2>/dev/null | tail -20)
+        if [ -n "$FAILED_LOGINS" ]; then
+            echo "| Date | User | Source IP | Service |" >> "$AUDIT_FILE"
+            echo "|------|------|-----------|---------|" >> "$AUDIT_FILE"
+            
+            echo "$FAILED_LOGINS" | while read line; do
+                DATE=$(echo "$line" | awk '{print $1, $2, $3}')
+                USER=$(echo "$line" | grep -o "for [^ ]*" | cut -d' ' -f2)
+                IP=$(echo "$line" | grep -o "from [^ ]*" | cut -d' ' -f2)
+                SERVICE=$(echo "$line" | grep -o "sshd\[[0-9]*\]")
+                
+                echo "| $DATE | ${USER:-unknown} | ${IP:-unknown} | ${SERVICE:-ssh} |" >> "$AUDIT_FILE"
+            done
+        else
+            echo "✅ **No failed login attempts found in recent logs**" >> "$AUDIT_FILE"
+        fi
     else
-        echo "No authentication log found" >> "$AUDIT_FILE"
+        echo "⚠️ **No authentication log found**" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "**Common log locations:**" >> "$AUDIT_FILE"
+        echo "- /var/log/auth.log (Debian/Ubuntu)" >> "$AUDIT_FILE"
+        echo "- /var/log/secure (RHEL/CentOS/Fedora)" >> "$AUDIT_FILE"
     fi
-    echo '```' >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    # Successful logins analysis
+    echo "### Recent Successful Logins" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    if [ -f /var/log/auth.log ]; then
+        SUCCESS_LOGINS=$(sudo grep "Accepted password" /var/log/auth.log 2>/dev/null | tail -10)
+        if [ -n "$SUCCESS_LOGINS" ]; then
+            echo "| Date | User | Source IP | Method |" >> "$AUDIT_FILE"
+            echo "|------|------|-----------|--------|" >> "$AUDIT_FILE"
+            
+            echo "$SUCCESS_LOGINS" | while read line; do
+                DATE=$(echo "$line" | awk '{print $1, $2, $3}')
+                USER=$(echo "$line" | grep -o "for [^ ]*" | cut -d' ' -f2)
+                IP=$(echo "$line" | grep -o "from [^ ]*" | cut -d' ' -f2)
+                METHOD=$(echo "$line" | grep -o "publickey\|password")
+                
+                echo "| $DATE | $USER | $IP | $METHOD |" >> "$AUDIT_FILE"
+            done
+        else
+            echo "ℹ️ **No recent successful password logins found**" >> "$AUDIT_FILE"
+        fi
+    fi
     echo "" >> "$AUDIT_FILE"
 
-    # Section 8: Installed Security Tools
-    echo "## 8. Security Tools Status" >> "$AUDIT_FILE"
+    # Enhanced Section 8: Security Tools Assessment
+    echo "## 🛠️ Security Tools Status" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    echo "- **rkhunter:** $(if $RKHUNTER_INSTALLED; then echo "Installed ✓"; else echo "Not Installed ✗"; fi)" >> "$AUDIT_FILE"
-    echo "- **chkrootkit:** $(if $CHKROOTKIT_INSTALLED; then echo "Installed ✓"; else echo "Not Installed ✗"; fi)" >> "$AUDIT_FILE"
-    echo "- **ClamAV:** $(if $CLAMAV_INSTALLED; then echo "Installed ✓"; else echo "Not Installed ✗"; fi)" >> "$AUDIT_FILE"
+    
+    echo "### Installed Security Tools" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "| Tool | Status | Purpose | Recommendation |" >> "$AUDIT_FILE"
+    echo "|------|--------|---------|----------------|" >> "$AUDIT_FILE"
+    
+    if [ "$RKHUNTER_INSTALLED" = true ]; then
+        echo "| rkhunter | ✅ Installed | Rootkit detection | ✅ Keep updated |" >> "$AUDIT_FILE"
+    else
+        echo "| rkhunter | ❌ Missing | Rootkit detection | 🔧 Install with \`sudo apt install rkhunter\` |" >> "$AUDIT_FILE"
+        SECURITY_SCORES[total_issues]=$((SECURITY_SCORES[total_issues] + 1))
+    fi
+    
+    if [ "$CHKROOTKIT_INSTALLED" = true ]; then
+        echo "| chkrootkit | ✅ Installed | Additional rootkit scanning | ✅ Keep updated |" >> "$AUDIT_FILE"
+    else
+        echo "| chkrootkit | ❌ Missing | Additional rootkit scanning | 🔧 Install with \`sudo apt install chkrootkit\` |" >> "$AUDIT_FILE"
+        SECURITY_SCORES[total_issues]=$((SECURITY_SCORES[total_issues] + 1))
+    fi
+    
+    if [ "$CLAMAV_INSTALLED" = true ]; then
+        echo "| ClamAV | ✅ Installed | Malware/virus scanning | ✅ Keep definitions updated |" >> "$AUDIT_FILE"
+    else
+        echo "| ClamAV | ❌ Missing | Malware/virus scanning | 🔧 Install with \`sudo apt install clamav\` |" >> "$AUDIT_FILE"
+        SECURITY_SCORES[total_issues]=$((SECURITY_SCORES[total_issues] + 1))
+    fi
+    
+    # Check for additional security tools
+    if command -v fail2ban-client >/dev/null 2>&1; then
+        echo "| fail2ban | ✅ Installed | SSH brute force protection | ✅ Keep enabled |" >> "$AUDIT_FILE"
+    else
+        echo "| fail2ban | ❌ Missing | SSH brute force protection | 🔧 Install for SSH protection |" >> "$AUDIT_FILE"
+    fi
+    
+    if command -v ufw >/dev/null 2>&1 || command -v firewall-cmd >/dev/null 2>&1 || command -v iptables >/dev/null 2>&1; then
+        echo "| Firewall | ✅ Available | Network traffic filtering | ✅ Configure rules |" >> "$AUDIT_FILE"
+    else
+        echo "| Firewall | ❌ Missing | Network traffic filtering | 🔧 Install UFW or Firewalld |" >> "$AUDIT_FILE"
+        SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
+    fi
+    
+    echo "" >> "$AUDIT_FILE"
+    
+    # Security tools coverage assessment
+    echo "### Security Coverage Assessment" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    TOOLS_INSTALLED=0
+    [ "$RKHUNTER_INSTALLED" = true ] && TOOLS_INSTALLED=$((TOOLS_INSTALLED + 1))
+    [ "$CHKROOTKIT_INSTALLED" = true ] && TOOLS_INSTALLED=$((TOOLS_INSTALLED + 1))
+    [ "$CLAMAV_INSTALLED" = true ] && TOOLS_INSTALLED=$((TOOLS_INSTALLED + 1))
+    
+    COVERAGE_PERCENT=$((TOOLS_INSTALLED * 33))
+    if [ "$COVERAGE_PERCENT" -gt 99 ]; then COVERAGE_PERCENT=100; fi
+    
+    echo "- **Security Tools Coverage:** $TOOLS_INSTALLED/3 ($COVERAGE_PERCENT%)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    if [ "$TOOLS_INSTALLED" -eq 3 ]; then
+        echo "✅ **Excellent:** All major security tools are installed" >> "$AUDIT_FILE"
+    elif [ "$TOOLS_INSTALLED" -eq 2 ]; then
+        echo "🟡 **Good:** Most security tools are installed" >> "$AUDIT_FILE"
+    elif [ "$TOOLS_INSTALLED" -eq 1 ]; then
+        echo "⚠️ **Fair:** Some security tools missing" >> "$AUDIT_FILE"
+    else
+        echo "❌ **Poor:** No security tools installed" >> "$AUDIT_FILE"
+    fi
     echo "" >> "$AUDIT_FILE"
 
-    # Section 9: Rootkit Scan (rkhunter)
+    # Enhanced Section 9: Rootkit Hunter (rkhunter) Scan
     if [ "$RKHUNTER_INSTALLED" = true ]; then
         echo -e "${CYAN}Running rkhunter scan...${NC}"
-        echo "## 9. Rootkit Hunter (rkhunter) Scan" >> "$AUDIT_FILE"
+        echo "## 🔍 Rootkit Hunter (rkhunter) Analysis" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        echo "### Scan Results" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Update definitions first
+        echo "**Updating rkhunter definitions...**" >> "$AUDIT_FILE"
+        sudo rkhunter --update > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            echo "✅ Definitions updated successfully" >> "$AUDIT_FILE"
+        else
+            echo "⚠️ Failed to update definitions" >> "$AUDIT_FILE"
+        fi
+        echo "" >> "$AUDIT_FILE"
+        
+        # Run scan and capture results
+        RKHUNTER_OUTPUT=$(sudo rkhunter --check --skip-keypress --report-warnings-only 2>&1)
+        
+        # Analyze results
+        if echo "$RKHUNTER_OUTPUT" | grep -q "Warning"; then
+            echo "⚠️ **Warnings detected during scan**" >> "$AUDIT_FILE"
+            SECURITY_SCORES[malware_issues]=$((SECURITY_SCORES[malware_issues] + 1))
+        else
+            echo "✅ **No warnings detected**" >> "$AUDIT_FILE"
+        fi
+        echo "" >> "$AUDIT_FILE"
+        
+        # Show critical warnings in table format
+        if echo "$RKHUNTER_OUTPUT" | grep -qi "warning\|found"; then
+            echo "| Check | Result | Severity | Action |" >> "$AUDIT_FILE"
+            echo "|-------|--------|----------|--------|" >> "$AUDIT_FILE"
+            
+            echo "$RKHUNTER_OUTPUT" | grep -i "warning\|found" | while read line; do
+                if echo "$line" | grep -qi "warning"; then
+                    CHECK=$(echo "$line" | cut -d':' -f1 | sed 's/^\[ *//; s/ *\]//' | tr '[:upper:]' '[:lower:]')
+                    RESULT="Warning"
+                    SEVERITY="🟡 Medium"
+                    ACTION="Review"
+                elif echo "$line" | grep -qi "found"; then
+                    CHECK=$(echo "$line" | cut -d':' -f1 | sed 's/^\[ *//; s/ *\]//' | tr '[:upper:]' '[:lower:]')
+                    RESULT="Issue Found"
+                    SEVERITY="🔴 High"
+                    ACTION="Investigate"
+                fi
+                
+                echo "| $CHECK | $RESULT | $SEVERITY | $ACTION |" >> "$AUDIT_FILE"
+            done
+        fi
+        echo "" >> "$AUDIT_FILE"
+        
+        # Full technical output (collapsed)
+        echo "#### Technical Details" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "<details>" >> "$AUDIT_FILE"
+        echo "<summary>Click to expand full rkhunter output</summary>" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
-        sudo rkhunter --update > /dev/null 2>&1
-        sudo rkhunter --check --skip-keypress --report-warnings-only >> "$AUDIT_FILE" 2>&1
+        echo "$RKHUNTER_OUTPUT" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
+        echo "</details>" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
     fi
 
-    # Section 10: Rootkit Scan (chkrootkit)
+    # Enhanced Section 10: Chkrootkit Scan
     if [ "$CHKROOTKIT_INSTALLED" = true ]; then
         echo -e "${CYAN}Running chkrootkit scan...${NC}"
-        echo "## 10. Chkrootkit Scan" >> "$AUDIT_FILE"
+        echo "## 🔍 Chkrootkit Analysis" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        echo "### Scan Results Summary" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Run scan and capture results
+        CHKROOTKIT_OUTPUT=$(sudo chkrootkit 2>&1)
+        
+        # Analyze results for infections
+        INFECTED_COUNT=$(echo "$CHKROOTKIT_OUTPUT" | grep -c "INFECTED")
+        SUSPICIOUS_COUNT=$(echo "$CHKROOTKIT_OUTPUT" | grep -c "WARNING\|suspicious")
+        
+        echo "| Status | Count | Risk Level |" >> "$AUDIT_FILE"
+        echo "|--------|-------|------------|" >> "$AUDIT_FILE"
+        echo "| ✅ Clean | $((100 - INFECTED_COUNT - SUSPICIOUS_COUNT)) checks | 🟢 Low |" >> "$AUDIT_FILE"
+        echo "| ⚠️ Suspicious | $SUSPICIOUS_COUNT checks | 🟡 Medium |" >> "$AUDIT_FILE"
+        echo "| ❌ Infected | $INFECTED_COUNT checks | 🔴 Critical |" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
+        # Show detailed findings
+        if [ "$INFECTED_COUNT" -gt 0 ] || [ "$SUSPICIOUS_COUNT" -gt 0 ]; then
+            echo "### Detailed Findings" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            echo "| Check | Result | File | Action |" >> "$AUDIT_FILE"
+            echo "|-------|--------|------|--------|" >> "$AUDIT_FILE"
+            
+            echo "$CHKROOTKIT_OUTPUT" | while read line; do
+                if echo "$line" | grep -q "INFECTED"; then
+                    CHECK=$(echo "$line" | awk '{print $1}')
+                    FILE=$(echo "$line" | awk '{print $2}')
+                    echo "| $CHECK | 🔴 INFECTED | $FILE | 🚨 Remove immediately |" >> "$AUDIT_FILE"
+                    SECURITY_SCORES[malware_issues]=$((SECURITY_SCORES[malware_issues] + 2))
+                elif echo "$line" | grep -q "WARNING\|suspicious"; then
+                    CHECK=$(echo "$line" | awk '{print $1}')
+                    FILE=$(echo "$line" | awk '{print $2}')
+                    echo "| $CHECK | ⚠️ SUSPICIOUS | $FILE | 🔍 Investigate further |" >> "$AUDIT_FILE"
+                    SECURITY_SCORES[malware_issues]=$((SECURITY_SCORES[malware_issues] + 1))
+                fi
+            done
+        else
+            echo "✅ **No rootkit infections detected** - System appears clean" >> "$AUDIT_FILE"
+        fi
+        echo "" >> "$AUDIT_FILE"
+        
+        # Technical details section
+        echo "#### Technical Scan Output" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "<details>" >> "$AUDIT_FILE"
+        echo "<summary>Click to expand full chkrootkit output</summary>" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
-        sudo chkrootkit >> "$AUDIT_FILE" 2>&1
+        echo "$CHKROOTKIT_OUTPUT" >> "$AUDIT_FILE"
         echo '```' >> "$AUDIT_FILE"
+        echo "</details>" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
     fi
 
-    # Section 11: ClamAV Malware Scan
+    # Enhanced Section 11: ClamAV Malware Scan
     if [ "$CLAMAV_INSTALLED" = true ]; then
         echo -e "${CYAN}Running ClamAV malware scan...${NC}"
-        echo "## 11. ClamAV Malware Scan" >> "$AUDIT_FILE"
+        echo "## 🦠 ClamAV Malware Analysis" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
 
-        # Update virus definitions
-        echo "### Virus Definition Update" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
+        # Virus definition status
+        echo "### Virus Database Status" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
         if command -v freshclam >/dev/null 2>&1; then
-            echo "Updating ClamAV virus definitions..." >> "$AUDIT_FILE"
-            sudo freshclam --quiet >> "$AUDIT_FILE" 2>&1
-            if [ $? -eq 0 ]; then
-                echo "✅ Virus definitions updated successfully" >> "$AUDIT_FILE"
+            echo "**Updating virus definitions...**" >> "$AUDIT_FILE"
+            FRESHCLAM_OUTPUT=$(sudo freshclam --quiet 2>&1)
+            UPDATE_STATUS=$?
+            
+            # Get current database version
+            DB_VERSION=$(sigtool --info /var/lib/clamav/main.cvd 2>/dev/null | grep "Build time" || echo "Unknown")
+            
+            if [ $UPDATE_STATUS -eq 0 ]; then
+                echo "- ✅ Database updated successfully" >> "$AUDIT_FILE"
+                echo "- 📅 Database version: $DB_VERSION" >> "$AUDIT_FILE"
+                DB_STATUS="Current"
             else
-                echo "⚠️ Warning: Failed to update virus definitions" >> "$AUDIT_FILE"
+                echo "- ⚠️ Update failed: $FRESHCLAM_OUTPUT" >> "$AUDIT_FILE"
+                echo "- 📅 Database version: $DB_VERSION" >> "$AUDIT_FILE"
+                DB_STATUS="Outdated"
             fi
         else
-            echo "⚠️ Warning: freshclam not found" >> "$AUDIT_FILE"
+            echo "- ❌ freshclam not found - manual updates required" >> "$AUDIT_FILE"
+            DB_STATUS="Unknown"
         fi
-        echo '```' >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
 
-        # Start ClamAV services for current session only
-        echo "### Service Management (Current Session)" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
+        # Service management
+        echo "### ClamAV Service Status" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
         SERVICE_STARTED=false
+        SERVICE_NAME="None"
 
         if command -v systemctl >/dev/null 2>&1; then
             # Try common service names
             for service in "clamav-daemon" "clamav" "clamd"; do
                 if systemctl list-unit-files 2>/dev/null | grep -q "^${service}.service"; then
-                    if ! systemctl is-active --quiet "$service" 2>/dev/null; then
-                        echo "Starting $service for current session..." >> "$AUDIT_FILE"
-                        sudo systemctl start "$service" >> "$AUDIT_FILE" 2>&1
+                    SERVICE_NAME="$service"
+                    if systemctl is-active --quiet "$service" 2>/dev/null; then
+                        echo "- ✅ $service is running" >> "$AUDIT_FILE"
+                        SERVICE_STARTED=true
+                    else
+                        echo "- ⚠️ $service is not running" >> "$AUDIT_FILE"
+                        echo "  Starting $service for scan..." >> "$AUDIT_FILE"
+                        sudo systemctl start "$service" >/dev/null 2>&1
                         if systemctl is-active --quiet "$service" 2>/dev/null; then
-                            echo "✅ $service started successfully" >> "$AUDIT_FILE"
+                            echo "- ✅ $service started successfully" >> "$AUDIT_FILE"
                             SERVICE_STARTED=true
                         else
-                            echo "⚠️ Failed to start $service" >> "$AUDIT_FILE"
+                            echo "- ❌ Failed to start $service" >> "$AUDIT_FILE"
                         fi
-                        break
-                    else
-                        echo "✅ $service already running" >> "$AUDIT_FILE"
-                        SERVICE_STARTED=true
-                        break
                     fi
+                    break
                 fi
             done
-
-            if [ "$SERVICE_STARTED" = false ]; then
-                echo "ℹ️ No ClamAV service found, using scanner only" >> "$AUDIT_FILE"
-            fi
-        else
-            echo "ℹ️ systemd not available, using scanner only" >> "$AUDIT_FILE"
         fi
-        echo '```' >> "$AUDIT_FILE"
+        
+        if [ "$SERVICE_STARTED" = false ]; then
+            echo "- ℹ️ Using ClamAV scanner only (no daemon)" >> "$AUDIT_FILE"
+            SERVICE_NAME="Scanner Only"
+        fi
         echo "" >> "$AUDIT_FILE"
 
-        # Scan critical directories with threat-only output
-        echo "### Critical Directories Scan" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
-        echo "Scanning critical directories for malware..." >> "$AUDIT_FILE"
-
-        # Define critical directories to scan
+        # Scan critical directories
+        echo "### Critical Directory Scan Results" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        
         SCAN_DIRS="/home /tmp /var/www /usr/local/bin /var/tmp"
+        FILES_SCANNED=0
         THREATS_FOUND=false
-        THREAT_COUNT=0
-
+        THREAT_DETAILS=()
+        
+        echo "| Directory | Status | Files Found | Threats | Scan Time |" >> "$AUDIT_FILE"
+        echo "|-----------|--------|-------------|---------|-----------|" >> "$AUDIT_FILE"
+        
         for dir in $SCAN_DIRS; do
             if [ -d "$dir" ]; then
-                echo "Scanning $dir..." >> "$AUDIT_FILE"
-                # Only show infected files, not full scan output
+                START_TIME=$(date +%s)
+                
+                # Quick scan focusing on threats only
                 SCAN_RESULT=$(clamscan --recursive --infected --no-summary "$dir" 2>/dev/null)
+                END_TIME=$(date +%s)
+                SCAN_TIME=$((END_TIME - START_TIME))
+                
+                # Count files in directory
+                FILE_COUNT=$(find "$dir" -type f 2>/dev/null | wc -l)
+                FILES_SCANNED=$((FILES_SCANNED + FILE_COUNT))
+                
+                # Analyze results
                 if echo "$SCAN_RESULT" | grep -q "FOUND"; then
                     THREATS_FOUND=true
-                    THREAT_COUNT=$((THREAT_COUNT + $(echo "$SCAN_RESULT" | grep -c "FOUND")))
-                    echo "$SCAN_RESULT" >> "$AUDIT_FILE"
+                    THREAT_COUNT=$(echo "$SCAN_RESULT" | grep -c "FOUND")
+                    echo "| $dir | 🔴 Threats | $FILE_COUNT | $THREAT_COUNT | ${SCAN_TIME}s |" >> "$AUDIT_FILE"
+                    
+                    # Store threat details
+                    while read threat_line; do
+                        THREAT_DETAILS+=("$dir: $threat_line")
+                    done <<< "$SCAN_RESULT"
+                    
+                    SECURITY_SCORES[malware_issues]=$((SECURITY_SCORES[malware_issues] + THREAT_COUNT))
+                else
+                    echo "| $dir | ✅ Clean | $FILE_COUNT | 0 | ${SCAN_TIME}s |" >> "$AUDIT_FILE"
                 fi
+            else
+                echo "| $dir | ⚪ Skipped | 0 | 0 | 0s |" >> "$AUDIT_FILE"
             fi
         done
-
-        echo '```' >> "$AUDIT_FILE"
+        
         echo "" >> "$AUDIT_FILE"
-
-        # Scan Summary
-        echo "### Scan Summary" >> "$AUDIT_FILE"
+        
+        # Detailed threat analysis
         if [ "$THREATS_FOUND" = true ]; then
-            echo "⚠️ **$THREAT_COUNT threat(s) detected in critical directories**" >> "$AUDIT_FILE"
-            echo "🔍 See detailed findings above" >> "$AUDIT_FILE"
+            echo "### 🚨 Threats Detected" >> "$AUDIT_FILE"
+            echo "" >> "$AUDIT_FILE"
+            echo "| File Path | Threat Type | Action |" >> "$AUDIT_FILE"
+            echo "|-----------|-------------|--------|" >> "$AUDIT_FILE"
+            
+            for threat in "${THREAT_DETAILS[@]}"; do
+                FILE_PATH=$(echo "$threat" | awk '{print $1}' | sed 's/:.*//')
+                THREAT_TYPE=$(echo "$threat" | grep -o 'FOUND.*' | cut -d' ' -f2-)
+                echo "| $FILE_PATH | $THREAT_TYPE | 🗑️ Remove immediately |" >> "$AUDIT_FILE"
+            done
+            echo "" >> "$AUDIT_FILE"
+            
+            echo "**⚠️ CRITICAL:** Malware detected! Take immediate action:" >> "$AUDIT_FILE"
+            echo "1. Remove infected files" >> "$AUDIT_FILE"
+            echo "2. Scan the entire system" >> "$AUDIT_FILE"
+            echo "3. Check for system compromise" >> "$AUDIT_FILE"
+            echo "4. Change all passwords" >> "$AUDIT_FILE"
         else
-            echo "✅ **No threats detected in critical directories**" >> "$AUDIT_FILE"
+            echo "✅ **No malware threats detected** in critical directories" >> "$AUDIT_FILE"
         fi
-
-        # Scan Statistics
         echo "" >> "$AUDIT_FILE"
-        echo "**Scan Statistics:**" >> "$AUDIT_FILE"
-        echo "- Directories scanned: $SCAN_DIRS" >> "$AUDIT_FILE"
-        echo "- Scan mode: Threat detection only (clean files not shown)" >> "$AUDIT_FILE"
-        echo "- Service status: $(if [ "$SERVICE_STARTED" = true ]; then echo "Running"; else echo "Scanner only"; fi)" >> "$AUDIT_FILE"
+        
+        # Scan summary with statistics
+        echo "### Scan Summary & Statistics" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "| Metric | Value | Status |" >> "$AUDIT_FILE"
+        echo "|--------|-------|--------|" >> "$AUDIT_FILE"
+        echo "| Files Scanned | $FILES_SCANNED | ✅ |" >> "$AUDIT_FILE"
+        echo "| Directories | $SCAN_DIRS | ✅ |" >> "$AUDIT_FILE"
+        echo "| Threats Found | $(if [ "$THREATS_FOUND" = true ]; then echo "${#THREAT_DETAILS[@]}"; else echo "0"; fi) | $(if [ "$THREATS_FOUND" = true ]; then echo "🔴"; else echo "✅"; fi) |" >> "$AUDIT_FILE"
+        echo "| Database | $DB_STATUS | $(if [ "$DB_STATUS" = "Current" ]; then echo "✅"; else echo "⚠️"; fi) |" >> "$AUDIT_FILE"
+        echo "| Service | $SERVICE_NAME | $(if [ "$SERVICE_STARTED" = true ]; then echo "✅"; else echo "ℹ️"; fi) |" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
     fi
 
-    # Section 12: Recommendations
-    echo "## 12. Security Recommendations" >> "$AUDIT_FILE"
+    # Enhanced Section 12: Security Recommendations with Executive Summary
+    echo "## 📋 Security Recommendations" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
-    RECOMMENDATIONS=()
+    # Calculate total security score
+    TOTAL_ISSUES=$((SECURITY_SCORES[ssh_issues] + SECURITY_SCORES[firewall_issues] + SECURITY_SCORES[user_issues] + SECURITY_SCORES[permission_issues] + SECURITY_SCORES[malware_issues]))
+    SECURITY_SCORES[total_issues]=$TOTAL_ISSUES
 
-    # Check SSH root login
-    if grep -q "^PermitRootLogin yes" /etc/ssh/sshd_config 2>/dev/null; then
-        RECOMMENDATIONS+=("- ⚠️ **Disable SSH root login:** Set \`PermitRootLogin no\` in /etc/ssh/sshd_config")
-    fi
-
-    # Check password authentication
-    if grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config 2>/dev/null; then
-        RECOMMENDATIONS+=("- ⚠️ **Consider disabling SSH password authentication:** Use key-based authentication only")
-    fi
-
-    # Check firewall
-    FIREWALL_ACTIVE=false
-    if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
-        FIREWALL_ACTIVE=true
-    elif command -v firewall-cmd >/dev/null 2>&1 && sudo firewall-cmd --state 2>/dev/null | grep -q "running"; then
-        FIREWALL_ACTIVE=true
-    fi
-
-    if [ "$FIREWALL_ACTIVE" = false ]; then
-        RECOMMENDATIONS+=("- ⚠️ **Enable firewall:** Configure ufw, firewalld, or iptables")
-    fi
-
-    # Check if security tools are installed
-    if [ "$RKHUNTER_INSTALLED" = false ]; then
-        RECOMMENDATIONS+=("- 💡 **Install rkhunter:** Rootkit detection tool")
-    fi
-
-    if [ "$CHKROOTKIT_INSTALLED" = false ]; then
-        RECOMMENDATIONS+=("- 💡 **Install chkrootkit:** Additional rootkit scanning")
-    fi
-
-    if [ "$CLAMAV_INSTALLED" = false ]; then
-        RECOMMENDATIONS+=("- 💡 **Install ClamAV:** Malware and virus scanning for critical files")
-    fi
-
-    RECOMMENDATIONS+=("- 💡 **Keep system updated:** Regularly run system updates")
-    RECOMMENDATIONS+=("- 💡 **Review user accounts:** Remove unused accounts and check privileges")
-    RECOMMENDATIONS+=("- 💡 **Monitor logs:** Regularly check /var/log/auth.log or /var/log/secure")
-    RECOMMENDATIONS+=("- 💡 **Use strong passwords:** Enforce password complexity policies")
-
-    if [ ${#RECOMMENDATIONS[@]} -eq 0 ]; then
-        echo "✅ No immediate recommendations. System appears well-configured." >> "$AUDIT_FILE"
+    # Executive Summary
+    echo "### 🎯 Executive Summary" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "| Security Area | Issues | Status | Priority |" >> "$AUDIT_FILE"
+    echo "|---------------|--------|--------|----------|" >> "$AUDIT_FILE"
+    
+    if [ "${SECURITY_SCORES[ssh_issues]}" -gt 0 ]; then
+        echo "| 🔐 SSH Security | ${SECURITY_SCORES[ssh_issues]} | ⚠️ Needs Attention | 🚨 High |" >> "$AUDIT_FILE"
     else
-        for rec in "${RECOMMENDATIONS[@]}"; do
-            echo "$rec" >> "$AUDIT_FILE"
-        done
+        echo "| 🔐 SSH Security | 0 | ✅ Secure | 🟢 Low |" >> "$AUDIT_FILE"
     fi
-
+    
+    if [ "${SECURITY_SCORES[firewall_issues]}" -gt 0 ]; then
+        echo "| 🔥 Firewall | ${SECURITY_SCORES[firewall_issues]} | ⚠️ Needs Attention | 🚨 High |" >> "$AUDIT_FILE"
+    else
+        echo "| 🔥 Firewall | 0 | ✅ Active | 🟢 Low |" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "${SECURITY_SCORES[user_issues]}" -gt 0 ]; then
+        echo "| 👥 User Accounts | ${SECURITY_SCORES[user_issues]} | ⚠️ Review Needed | 🟡 Medium |" >> "$AUDIT_FILE"
+    else
+        echo "| 👥 User Accounts | 0 | ✅ Secure | 🟢 Low |" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "${SECURITY_SCORES[permission_issues]}" -gt 0 ]; then
+        echo "| 📁 File Permissions | ${SECURITY_SCORES[permission_issues]} | ⚠️ Review Needed | 🟡 Medium |" >> "$AUDIT_FILE"
+    else
+        echo "| 📁 File Permissions | 0 | ✅ Secure | 🟢 Low |" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "${SECURITY_SCORES[malware_issues]}" -gt 0 ]; then
+        echo "| 🦠 Malware/Rootkits | ${SECURITY_SCORES[malware_issues]} | 🚨 Threats Found | 🚨 Critical |" >> "$AUDIT_FILE"
+    else
+        echo "| 🦠 Malware/Rootkits | 0 | ✅ Clean | 🟢 Low |" >> "$AUDIT_FILE"
+    fi
+    
+    echo "" >> "$AUDIT_FILE"
+    
+    # Overall security score
+    MAX_SCORE=10
+    DEDUCTIONS=$TOTAL_ISSUES
+    FINAL_SCORE=$((MAX_SCORE - DEDUCTIONS))
+    if [ "$FINAL_SCORE" -lt 0 ]; then FINAL_SCORE=0; fi
+    
+    if [ "$FINAL_SCORE" -ge 8 ]; then
+        RISK_LEVEL="🟢 LOW RISK"
+        RISK_COLOR="green"
+    elif [ "$FINAL_SCORE" -ge 6 ]; then
+        RISK_LEVEL="🟡 MEDIUM RISK"
+        RISK_COLOR="yellow"
+    elif [ "$FINAL_SCORE" -ge 4 ]; then
+        RISK_LEVEL="🔴 HIGH RISK"
+        RISK_COLOR="red"
+    else
+        RISK_LEVEL="🚨 CRITICAL RISK"
+        RISK_COLOR="critical"
+    fi
+    
+    echo "**Overall Security Score:** **$FINAL_SCORE/10** $RISK_LEVEL" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    # Priority recommendations
+    echo "### 🚨 Priority Actions (Address First)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    PRIORITY_RECS=()
+    
+    # Critical priority recommendations
+    if grep -q "^PermitRootLogin yes" /etc/ssh/sshd_config 2>/dev/null; then
+        PRIORITY_RECS+=("🚨 **CRITICAL:** Disable SSH root login immediately")
+        echo "#### 🚨 CRITICAL Actions" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "1. **Disable SSH Root Login**" >> "$AUDIT_FILE"
+        echo "   ```bash" >> "$AUDIT_FILE"
+        echo "   sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config" >> "$AUDIT_FILE"
+        echo "   sudo systemctl restart sshd" >> "$AUDIT_FILE"
+        echo "   ```" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "$FIREWALL_ACTIVE" = false ]; then
+        PRIORITY_RECS+=("🚨 **CRITICAL:** Enable firewall protection")
+        echo "2. **Enable Firewall Protection**" >> "$AUDIT_FILE"
+        echo "   ```bash" >> "$AUDIT_FILE"
+        echo "   # For Ubuntu/Debian:" >> "$AUDIT_FILE"
+        echo "   sudo ufw enable" >> "$AUDIT_FILE"
+        echo "   sudo ufw allow ssh" >> "$AUDIT_FILE"
+        echo "   " >> "$AUDIT_FILE"
+        echo "   # For RHEL/CentOS:" >> "$AUDIT_FILE"
+        echo "   sudo systemctl enable --now firewalld" >> "$AUDIT_FILE"
+        echo "   ```" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "${SECURITY_SCORES[malware_issues]}" -gt 0 ]; then
+        PRIORITY_RECS+=("🚨 **CRITICAL:** Investigate and remove detected malware")
+        echo "3. **Remove Malware Threats**" >> "$AUDIT_FILE"
+        echo "   ```bash" >> "$AUDIT_FILE"
+        echo "   # Remove infected files (from scan results)" >> "$AUDIT_FILE"
+        echo "   sudo rm /path/to/infected/file" >> "$AUDIT_FILE"
+        echo "   # Run full system scan" >> "$AUDIT_FILE"
+        echo "   sudo clamscan -r --infected /" >> "$AUDIT_FILE"
+        echo "   ```" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    fi
+    
+    # Medium priority recommendations
+    if [ ${#PRIORITY_RECS[@]} -eq 0 ]; then
+        echo "✅ **No critical issues found** - Great job on security!" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    fi
+    
+    echo "### 💡 Recommended Security Improvements" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "#### 🔐 SSH Security Enhancements" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    if grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config 2>/dev/null; then
+        echo "- **Disable password authentication** (use keys only):" >> "$AUDIT_FILE"
+        echo "  ```bash" >> "$AUDIT_FILE"
+        echo "  sudo sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config" >> "$AUDIT_FILE"
+        echo "  sudo systemctl restart sshd" >> "$AUDIT_FILE"
+        echo "  ```" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    fi
+    
+    echo "- **Change default SSH port** (optional but recommended):" >> "$AUDIT_FILE"
+    echo "  ```bash" >> "$AUDIT_FILE"
+    echo "  sudo sed -i 's/^Port.*/Port 2222/' /etc/ssh/sshd_config" >> "$AUDIT_FILE"
+    echo "  sudo systemctl restart sshd" >> "$AUDIT_FILE"
+    echo "  ```" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "#### 🛠️ Security Tools Installation" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "| Tool | Installation Command | Purpose |" >> "$AUDIT_FILE"
+    echo "|------|---------------------|---------|" >> "$AUDIT_FILE"
+    
+    if [ "$RKHUNTER_INSTALLED" = false ]; then
+        echo "| rkhunter | \`sudo apt install rkhunter\` | Rootkit detection |" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "$CHKROOTKIT_INSTALLED" = false ]; then
+        echo "| chkrootkit | \`sudo apt install chkrootkit\` | Additional rootkit scanning |" >> "$AUDIT_FILE"
+    fi
+    
+    if [ "$CLAMAV_INSTALLED" = false ]; then
+        echo "| ClamAV | \`sudo apt install clamav\` | Malware scanning |" >> "$AUDIT_FILE"
+    fi
+    
+    if ! command -v fail2ban-client >/dev/null 2>&1; then
+        echo "| fail2ban | \`sudo apt install fail2ban\` | SSH brute force protection |" >> "$AUDIT_FILE"
+    fi
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "#### 📅 Ongoing Security Practices" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "✅ **Daily:**" >> "$AUDIT_FILE"
+    echo "- Review authentication logs for suspicious activity" >> "$AUDIT_FILE"
+    echo "- Check for failed login attempts" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "✅ **Weekly:**" >> "$AUDIT_FILE"
+    echo "- Run security updates: \`sudo apt update && sudo apt upgrade\`" >> "$AUDIT_FILE"
+    echo "- Scan critical directories for malware" >> "$AUDIT_FILE"
+    echo "- Review user accounts and privileges" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "✅ **Monthly:**" >> "$AUDIT_FILE"
+    echo "- Run comprehensive security audit" >> "$AUDIT_FILE"
+    echo "- Review and rotate passwords" >> "$AUDIT_FILE"
+    echo "- Check system logs for anomalies" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "#### ⏱️ Implementation Timeline" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "| Priority | Action | Estimated Time | Impact |" >> "$AUDIT_FILE"
+    echo "|----------|--------|----------------|--------|" >> "$AUDIT_FILE"
+    echo "| 🚨 Critical | Disable SSH root login | 5 minutes | 🛡️ High |" >> "$AUDIT_FILE"
+    echo "| 🚨 Critical | Enable firewall | 10 minutes | 🛡️ High |" >> "$AUDIT_FILE"
+    echo "| 🟡 Medium | Install security tools | 15 minutes | 🔍 Medium |" >> "$AUDIT_FILE"
+    echo "| 🟡 Medium | Configure SSH keys | 20 minutes | 🔐 High |" >> "$AUDIT_FILE"
+    echo "| 🟢 Low | Change SSH port | 10 minutes | 🕵️ Low |" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
+    echo "**Total estimated time:** 1 hour for complete security hardening" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
 
     # Footer
     echo "---" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "### 📊 Quick Assessment Summary" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "**Security Score:** $FINAL_SCORE/10 $RISK_LEVEL" >> "$AUDIT_FILE"
+    echo "**Total Issues Identified:** $TOTAL_ISSUES" >> "$AUDIT_FILE"
+    echo "**Tools Coverage:** $TOOLS_INSTALLED/3 ($(($TOOLS_INSTALLED * 33))%)" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    
     echo "*Report generated by LinWatch Security Audit*" >> "$AUDIT_FILE"
+    echo "" >> "$AUDIT_FILE"
+    echo "📅 **Next audit recommended:** $(date -d '+1 month' '+%Y-%m-%d')" >> "$AUDIT_FILE"
 
     echo -e "${GREEN}✓ Security audit complete!${NC}"
     echo -e "${GREEN}Report saved to: ${CYAN}$AUDIT_FILE${NC}"
@@ -1644,7 +2446,7 @@ run_disk_cleanup_interface
 echo -e "${CYAN}┌──────────────────────────────────────────────────────────────────${NC}"
 echo -e "${CYAN}│${NC} ${BOLD}${WHITE}LinWatch session completed successfully!${NC}"
 echo -e "${CYAN}│${NC}"
-echo -e "${CYAN}│${NC} ${GRAY}Thank you for using LinWatch - your cozy system companion${NC}"
+echo -e "${CYAN}│${NC} ${GRAY}Thank you for using LinWatch, your cozy system companion${NC}"
 echo -e "${CYAN}│${NC} ${GRAY}Stay safe, keep updated, and have a great day!${NC}"
 echo -e "${CYAN}│${NC}"
 echo -e "${CYAN}│${NC} ${GREEN}✓ System monitored${NC}"
