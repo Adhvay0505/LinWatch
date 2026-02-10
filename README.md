@@ -2,7 +2,7 @@
 
 Linux system  security audit, information, maintenance, and update utility. 
 Provides detailed system stats (like kernel version, CPU, memory, disk, network, open ports and user info) and optionally checks for and installs software updates.
-Has rkhunter, chkrootkit, ClamAV integrations for robust security analysis of cloud instances
+Has rkhunter, chkrootkit, ClamAV integrations for robust security analysis of cloud instances. This tool creates a security report at the end of each scan 
 
 ## Quick Install
 
