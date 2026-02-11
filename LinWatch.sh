@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.11
+# Version: 1.0.12
 
 # Colours
 RED='\033[0;31m'
@@ -2352,6 +2352,378 @@ EOF
     echo ""
 }
 
+#============================================================================
+# ADDITIONAL SECURITY AUDIT FUNCTIONS
+#============================================================================
+
+AUDIT_LOG_FILE="/var/log/linwatch_security_audit_$(date +%Y%m%d_%H%M%S).log"
+
+log_audit() {
+    local severity="$1"
+    local category="$2"
+    local message="$3"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$severity] [$category] $message" >> "$AUDIT_LOG_FILE" 2>/dev/null || true
+}
+
+audit_suid_sgid() {
+    echo -e "${CYAN}Scanning for SUID/SGID binaries...${NC}"
+    log_audit "INFO" "SUGID_SCAN" "Starting SUID/SGID binary scan"
+
+    suid_count=$(find /usr -type f -perm /4000 2>/dev/null | wc -l)
+    sgid_count=$(find /usr -type f -perm /2000 2>/dev/null | wc -l)
+
+    echo -e "${WHITE}SUID binaries found:${NC} ${suid_count}"
+    echo -e "${WHITE}SGID binaries found:${NC} ${sgid_count}"
+
+    if [[ $suid_count -gt 50 ]]; then
+        echo -e "${YELLOW}⚠ High number of SUID binaries detected${NC}"
+        log_audit "WARNING" "SUGID_SCAN" "High SUID count: $suid_count binaries"
+    fi
+
+    suspicious_suid=""
+    for binary in $(find /usr -type f -perm /4000 2>/dev/null); do
+        filename=$(basename "$binary")
+        case "$filename" in
+            su|sudo|passwd|chsh|chfn|newgrp|gpasswd|pkexec|shadow|busybox)
+                ;;
+            *)
+                [[ -n "$suspicious_suid" ]] && suspicious_suid="$suspicious_suid, $binary" || suspicious_suid="$binary"
+                ;;
+        esac
+    done
+
+    if [[ -n "$suspicious_suid" ]]; then
+        echo -e "${YELLOW}Non-standard SUID binaries: $suspicious_suid${NC}"
+        log_audit "WARNING" "SUGID_SCAN" "Non-standard SUID binaries: $suspicious_suid"
+    else
+        echo -e "${GREEN}No suspicious SUID binaries found${NC}"
+    fi
+
+    log_audit "INFO" "SUGID_SCAN" "SUID/SGID audit completed"
+}
+
+audit_world_writable() {
+    echo -e "${CYAN}Scanning for world-writable files...${NC}"
+    log_audit "INFO" "WW_SCAN" "Starting world-writable files scan"
+
+    ww_count=$(find /etc -type f -perm -2 2>/dev/null | wc -l)
+    ww_home_count=$(find /home -type f -perm -2 2>/dev/null | wc -l)
+
+    echo -e "${WHITE}World-writable files in /etc:${NC} ${ww_count}"
+    echo -e "${WHITE}World-writable files in /home:${NC} ${ww_home_count}"
+
+    if [[ $ww_count -gt 20 ]]; then
+        echo -e "${YELLOW}⚠ High number of world-writable files in /etc${NC}"
+        log_audit "WARNING" "WW_SCAN" "High WW count in /etc: $ww_count files"
+    fi
+
+    critical_ww=$(find /etc -type f -perm -2 2>/dev/null | grep -E "(passwd|shadow|group|gshadow|sudoers)" | head -5)
+    if [[ -n "$critical_ww" ]]; then
+        echo -e "${RED}⚠ Critical world-writable files: $critical_ww${NC}"
+        log_audit "CRITICAL" "WW_SCAN" "Critical WW files found: $critical_ww"
+    else
+        echo -e "${GREEN}No critical world-writable files found${NC}"
+    fi
+
+    log_audit "INFO" "WW_SCAN" "World-writable audit completed"
+}
+
+audit_user_accounts() {
+    echo -e "${CYAN}Analyzing user accounts...${NC}"
+    log_audit "INFO" "USER_AUDIT" "Starting user account audit"
+
+    system_accounts=$(awk -F: '$3 < 1000 {print $1}' /etc/passwd | wc -l)
+    echo -e "${WHITE}System accounts (UID < 1000):${NC} ${system_accounts}"
+
+    shell_accounts=$(awk -F: '$7 !~ /nologin|false/ {print $1}' /etc/passwd | wc -l)
+    echo -e "${WHITE}Accounts with login shell:${NC} ${shell_accounts}"
+
+    empty_pass=$(awk -F: '$2 == "" {print $1}' /etc/shadow 2>/dev/null)
+    if [[ -n "$empty_pass" ]]; then
+        echo -e "${RED}⚠ Accounts with empty passwords: $empty_pass${NC}"
+        log_audit "CRITICAL" "USER_AUDIT" "Empty password accounts: $empty_pass"
+    else
+        echo -e "${GREEN}No accounts with empty passwords${NC}"
+    fi
+
+    uid0_accounts=$(awk -F: '$3 == 0 {print $1}' /etc/passwd)
+    if [[ -n "$uid0_accounts" ]]; then
+        echo -e "${YELLOW}UID 0 accounts: $uid0_accounts${NC}"
+        log_audit "WARNING" "USER_AUDIT" "UID 0 accounts: $uid0_accounts"
+    else
+        echo -e "${GREEN}No additional UID 0 accounts found${NC}"
+    fi
+
+    log_audit "INFO" "USER_AUDIT" "User account audit completed"
+}
+
+audit_ssh_security() {
+    echo -e "${CYAN}Auditing SSH configuration...${NC}"
+    log_audit "INFO" "SSH_AUDIT" "Starting SSH security audit"
+
+    if [[ ! -f /etc/ssh/sshd_config ]]; then
+        echo -e "${GRAY}SSH not installed or configured${NC}"
+        return
+    fi
+
+    if grep -q "^PermitRootLogin yes" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${YELLOW}⚠ Root login is enabled${NC}"
+        log_audit "WARNING" "SSH_AUDIT" "Root login is enabled"
+    elif grep -q "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${GREEN}✓ Root login is disabled${NC}"
+    fi
+
+    if grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${YELLOW}⚠ Password authentication is enabled${NC}"
+        log_audit "WARNING" "SSH_AUDIT" "Password authentication enabled"
+    elif grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${GREEN}✓ Password authentication is disabled${NC}"
+    fi
+
+    if grep -q "^Protocol 1" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${RED}⚠ SSH Protocol 1 is enabled (insecure)${NC}"
+        log_audit "CRITICAL" "SSH_AUDIT" "SSH Protocol 1 detected"
+    fi
+
+    if grep -q "^PermitEmptyPasswords yes" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${RED}⚠ Empty passwords are permitted${NC}"
+        log_audit "CRITICAL" "SSH_AUDIT" "Empty passwords permitted"
+    fi
+
+    if [[ -f /var/log/auth.log ]]; then
+        failed_ssh=$(grep "Failed password" /var/log/auth.log 2>/dev/null | wc -l)
+        echo -e "${WHITE}Failed SSH login attempts (recent):${NC} $failed_ssh"
+        if [[ $failed_ssh -gt 10 ]]; then
+            log_audit "WARNING" "SSH_AUDIT" "High number of failed SSH attempts: $failed_ssh"
+        fi
+    fi
+
+    log_audit "INFO" "SSH_AUDIT" "SSH security audit completed"
+}
+
+audit_firewall() {
+    echo -e "${CYAN}Checking firewall status...${NC}"
+    log_audit "INFO" "FIREWALL" "Starting firewall audit"
+
+    firewall_active=false
+
+    if command -v ufw >/dev/null 2>&1; then
+        if ufw status 2>/dev/null | grep -q "Status: active"; then
+            echo -e "${GREEN}✓ UFW is active${NC}"
+            firewall_active=true
+        else
+            echo -e "${YELLOW}⚠ UFW is installed but inactive${NC}"
+        fi
+    fi
+
+    if command -v firewall-cmd >/dev/null 2>&1; then
+        if firewall-cmd --state 2>/dev/null | grep -q "running"; then
+            echo -e "${GREEN}✓ firewalld is active${NC}"
+            firewall_active=true
+        else
+            echo -e "${YELLOW}⚠ firewalld is installed but inactive${NC}"
+        fi
+    fi
+
+    if command -v iptables >/dev/null 2>&1; then
+        iptables_rules=$(iptables -L -n 2>/dev/null | grep -c "^ACCEPT\|^DROP\|^REJECT" || echo "0")
+        if [[ $iptables_rules -gt 0 ]]; then
+            echo -e "${GREEN}✓ iptables has rules configured${NC}"
+            firewall_active=true
+        fi
+    fi
+
+    if [[ "$firewall_active" == false ]]; then
+        echo -e "${RED}⚠ No active firewall detected${NC}"
+        log_audit "WARNING" "FIREWALL" "No active firewall detected"
+    fi
+
+    log_audit "INFO" "FIREWALL" "Firewall audit completed"
+}
+
+audit_services() {
+    echo -e "${CYAN}Analyzing running services...${NC}"
+    log_audit "INFO" "SERVICES" "Starting services audit"
+
+    if command -v systemctl >/dev/null 2>&1; then
+        total_services=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -c "service" || echo "0")
+        echo -e "${WHITE}Running services:${NC} ${total_services}"
+
+        dangerous_services=""
+        for svc in telnetd rshd vsftpd proftpd telnet rlogin rexec; do
+            if systemctl is-active "$svc" 2>/dev/null | grep -q "^active"; then
+                dangerous_services="$dangerous_services $svc"
+            fi
+        done
+
+        if [[ -n "$dangerous_services" ]]; then
+            echo -e "${RED}⚠ Insecure services running:$dangerous_services${NC}"
+            log_audit "CRITICAL" "SERVICES" "Insecure services: $dangerous_services"
+        else
+            echo -e "${GREEN}No obviously insecure services detected${NC}"
+        fi
+
+        echo ""
+        echo -e "${WHITE}Services listening on external interfaces:${NC}"
+        ss -tulpn 2>/dev/null | grep LISTEN | grep -v "127.0.0.1" | head -10 || echo "None found"
+    fi
+
+    log_audit "INFO" "SERVICES" "Services audit completed"
+}
+
+audit_kernel_parameters() {
+    echo -e "${CYAN}Checking kernel security parameters...${NC}"
+    log_audit "INFO" "KERNEL" "Starting kernel parameter audit"
+
+    ip_forward=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)
+    if [[ "$ip_forward" == "1" ]]; then
+        echo -e "${YELLOW}⚠ IP forwarding is enabled${NC}"
+        log_audit "WARNING" "KERNEL" "IP forwarding enabled"
+    else
+        echo -e "${GREEN}✓ IP forwarding is disabled${NC}"
+    fi
+
+    icmp_redirect=$(cat /proc/sys/net/ipv4/conf/all/accept_redirects 2>/dev/null)
+    if [[ "$icmp_redirect" == "1" ]]; then
+        echo -e "${YELLOW}⚠ ICMP redirects accepted${NC}"
+        log_audit "WARNING" "KERNEL" "ICMP redirects accepted"
+    else
+        echo -e "${GREEN}✓ ICMP redirects not accepted${NC}"
+    fi
+
+    source_route=$(cat /proc/sys/net/ipv4/conf/all/accept_source_route 2>/dev/null)
+    if [[ "$source_route" == "1" ]]; then
+        echo -e "${YELLOW}⚠ Source routing is accepted${NC}"
+        log_audit "WARNING" "KERNEL" "Source routing accepted"
+    else
+        echo -e "${GREEN}✓ Source routing is not accepted${NC}"
+    fi
+
+    rp_filter=$(cat /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null)
+    if [[ "$rp_filter" == "0" ]]; then
+        echo -e "${YELLOW}⚠ Reverse path filtering is disabled${NC}"
+        log_audit "WARNING" "KERNEL" "RP filter disabled"
+    else
+        echo -e "${GREEN}✓ Reverse path filtering is enabled${NC}"
+    fi
+
+    aslr=$(cat /proc/sys/kernel/randomize_va_space 2>/dev/null)
+    if [[ "$aslr" == "2" ]]; then
+        echo -e "${GREEN}✓ ASLR is fully enabled${NC}"
+    elif [[ "$aslr" == "1" ]]; then
+        echo -e "${YELLOW}⚠ ASLR is partially enabled${NC}"
+    else
+        echo -e "${RED}⚠ ASLR is disabled${NC}"
+        log_audit "WARNING" "KERNEL" "ASLR disabled"
+    fi
+
+    log_audit "INFO" "KERNEL" "Kernel parameter audit completed"
+}
+
+audit_ssl_certificates() {
+    echo -e "${CYAN}Checking SSL/TLS certificates...${NC}"
+    log_audit "INFO" "SSL" "Starting SSL certificate audit"
+
+    cert_locations="/etc/ssl/certs /etc/pki/tls/certs /etc/nginx/ssl /etc/apache2/ssl"
+
+    for loc in $cert_locations; do
+        if [[ -d "$loc" ]]; then
+            cert_count=$(find "$loc" -name "*.crt" -o -name "*.pem" 2>/dev/null | wc -l)
+            if [[ $cert_count -gt 0 ]]; then
+                echo -e "${WHITE}Certificates in $loc:${NC} $cert_count"
+
+                if command -v openssl >/dev/null 2>&1; then
+                    for cert in $(find "$loc" -name "*.crt" -o -name "*.pem" 2>/dev/null); do
+                        expiry=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2)
+                        if [[ -n "$expiry" ]]; then
+                            expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null)
+                            now_epoch=$(date +%s)
+                            days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+
+                            if [[ $days_left -lt 0 ]]; then
+                                echo -e "${RED}⚠ Expired: $cert (expired ${days_left} days ago)${NC}"
+                                log_audit "CRITICAL" "SSL" "Expired certificate: $cert"
+                            elif [[ $days_left -lt 30 ]]; then
+                                echo -e "${YELLOW}⚠ Expiring soon: $cert (${days_left} days left)${NC}"
+                                log_audit "WARNING" "SSL" "Expiring certificate: $cert ($days_left days)"
+                            fi
+                        fi
+                    done
+                fi
+            fi
+        fi
+    done
+
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo -e "${GRAY}OpenSSL not available for certificate analysis${NC}"
+    fi
+
+    log_audit "INFO" "SSL" "SSL certificate audit completed"
+}
+
+audit_security_updates() {
+    echo -e "${CYAN}Checking for security updates...${NC}"
+    log_audit "INFO" "SEC_UPDATES" "Starting security update check"
+
+    security_updates=0
+
+    if command -v apt >/dev/null 2>&1; then
+        sudo apt update -qq 2>/dev/null
+        security_updates=$(apt-get -s upgrade 2>/dev/null | grep -c "^Inst security" || echo "0")
+        echo -e "${WHITE}Pending security updates (APT):${NC} $security_updates"
+
+        if [[ $security_updates -gt 0 ]]; then
+            log_audit "WARNING" "SEC_UPDATES" "$security_updates security updates pending"
+        fi
+    elif command -v dnf >/dev/null 2>&1; then
+        security_updates=$(sudo dnf --security check-update 2>/dev/null | grep -c "security" || echo "0")
+        echo -e "${WHITE}Pending security updates (DNF):${NC} $security_updates"
+
+        if [[ $security_updates -gt 0 ]]; then
+            log_audit "WARNING" "SEC_UPDATES" "$security_updates security updates pending"
+        fi
+    elif command -v yum >/dev/null 2>&1; then
+        security_updates=$(sudo yum --security check-update 2>/dev/null | grep -c "security" || echo "0")
+        echo -e "${WHITE}Pending security updates (YUM):${NC} $security_updates"
+
+        if [[ $security_updates -gt 0 ]]; then
+            log_audit "WARNING" "SEC_UPDATES" "$security_updates security updates pending"
+        fi
+    else
+        echo -e "${GRAY}No supported package manager found for security update check${NC}"
+    fi
+
+    log_audit "INFO" "SEC_UPDATES" "Security update audit completed"
+}
+
+run_additional_security_audits() {
+    echo ""
+    echo -e "${CYAN}Running Additional Security Audits...${NC}"
+    echo ""
+
+    audit_suid_sgid
+    echo ""
+    audit_world_writable
+    echo ""
+    audit_user_accounts
+    echo ""
+    audit_ssh_security
+    echo ""
+    audit_firewall
+    echo ""
+    audit_services
+    echo ""
+    audit_kernel_parameters
+    echo ""
+    audit_ssl_certificates
+    echo ""
+    audit_security_updates
+    echo ""
+
+    echo -e "${CYAN}Additional security audits completed!${NC}"
+    echo ""
+}
+
 # Enhanced security menu with comfort styling
 echo -e "${MAGENTA}┌──────────────────────────────────────────────────────────────────${NC}"
 echo -e "${MAGENTA}│${NC} ${WHITE}Would you like to perform a comprehensive security audit?${NC}"
@@ -2401,6 +2773,9 @@ if [[ "$SECURITY_RESPONSE" =~ ^[Yy]$ ]]; then
 
     # Perform the audit
     perform_security_audit
+
+    # Run additional security audits
+    run_additional_security_audits
 
 else
     echo -e "${GRAY}┌──────────────────────────────────────────────────────────────────${NC}"
