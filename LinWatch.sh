@@ -59,6 +59,30 @@ get_latest_release() {
     fi
 }
 
+SUDO_AVAILABLE=false
+
+check_sudo_available() {
+    if [ "$SUDO_AVAILABLE" = true ]; then
+        return 0
+    fi
+    if sudo -n true 2>/dev/null; then
+        SUDO_AVAILABLE=true
+        return 0
+    else
+        SUDO_AVAILABLE=false
+        return 1
+    fi
+}
+
+run_sudo_command() {
+    if check_sudo_available; then
+        sudo "$@"
+        return $?
+    else
+        return 1
+    fi
+}
+
 # Function to update version in script
 update_version_in_script() {
     local new_version="$1"
@@ -1295,7 +1319,11 @@ EOF
     # Password-less accounts
     echo "### Accounts Without Passwords" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    NO_PASS_USERS=$(sudo awk -F: '($2 == "" ) {print $1}' /etc/shadow 2>/dev/null)
+    if check_sudo_available; then
+        NO_PASS_USERS=$(sudo awk -F: '($2 == "" ) {print $1}' /etc/shadow 2>/dev/null)
+    else
+        NO_PASS_USERS=""
+    fi
     if [ -n "$NO_PASS_USERS" ]; then
         echo "⚠️ **CRITICAL:** Found accounts without passwords:" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
@@ -1377,15 +1405,20 @@ EOF
     FIREWALL_ACTIVE=false
     FIREWALL_TYPE="None"
 
-    if command -v ufw >/dev/null 2>&1; then
+    if ! check_sudo_available; then
+        echo "### ⚠️ Sudo Access Required" >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+        echo "This section requires sudo privileges to check firewall status." >> "$AUDIT_FILE"
+        echo "Please run the script with sudo or configure passwordless sudo." >> "$AUDIT_FILE"
+        echo "" >> "$AUDIT_FILE"
+    elif command -v ufw >/dev/null 2>&1; then
         FIREWALL_TYPE="UFW"
         UFW_STATUS=$(sudo ufw status 2>/dev/null)
         if echo "$UFW_STATUS" | grep -q "Status: active"; then
             FIREWALL_ACTIVE=true
             echo "### 🛡️ UFW Firewall Status: **ACTIVE** ✅" >> "$AUDIT_FILE"
             echo "" >> "$AUDIT_FILE"
-            
-            # Parse UFW rules into readable format
+
             echo "| Action | From | To | Port | Protocol |" >> "$AUDIT_FILE"
             echo "|--------|------|-----|------|----------|" >> "$AUDIT_FILE"
             echo "$UFW_STATUS" | grep -E "^[0-9]+" | while read line; do
@@ -1393,7 +1426,7 @@ EOF
                 FROM=$(echo "$line" | awk '{print $4}')
                 TO=$(echo "$line" | awk '{print $6}')
                 PORT=$(echo "$line" | awk '{print $7}')
-                
+
                 echo "| $ACTION | $FROM | $TO | $PORT | Any |" >> "$AUDIT_FILE"
             done
         else
@@ -1402,16 +1435,13 @@ EOF
             echo "**Risk:** Network traffic is not being filtered" >> "$AUDIT_FILE"
             SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
         fi
-        echo "" >> "$AUDIT_FILE"
-        
     elif command -v firewall-cmd >/dev/null 2>&1; then
         FIREWALL_TYPE="Firewalld"
         if sudo firewall-cmd --state >/dev/null 2>&1; then
             FIREWALL_ACTIVE=true
             echo "### 🛡️ Firewalld Status: **RUNNING** ✅" >> "$AUDIT_FILE"
             echo "" >> "$AUDIT_FILE"
-            
-            # Get active zones
+
             echo "| Zone | Services | Ports |" >> "$AUDIT_FILE"
             echo "|------|----------|-------|" >> "$AUDIT_FILE"
             sudo firewall-cmd --get-active-zones 2>/dev/null | while read zone; do
@@ -1419,15 +1449,13 @@ EOF
                     ZONE_NAME="$zone"
                     SERVICES=$(sudo firewall-cmd --zone="$ZONE_NAME" --list-services 2>/dev/null)
                     PORTS=$(sudo firewall-cmd --zone="$ZONE_NAME" --list-ports 2>/dev/null)
-                    echo "| $ZONE_NAME | ${ SERVICES// /, } | ${ PORTS// /, } |" >> "$AUDIT_FILE"
+                    echo "| $ZONE_NAME | ${SERVICES// /,} | ${PORTS// /,} |" >> "$AUDIT_FILE"
                 fi
             done
         else
             echo "### ⚠️ Firewalld Status: **NOT RUNNING**" >> "$AUDIT_FILE"
             SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
         fi
-        echo "" >> "$AUDIT_FILE"
-        
     elif command -v iptables >/dev/null 2>&1; then
         FIREWALL_TYPE="IPTables"
         RULES_COUNT=$(sudo iptables -L | grep -c "^Chain\|^[A-Z]" 2>/dev/null)
@@ -1436,19 +1464,18 @@ EOF
             echo "### 🛡️ IPTables Status: **RULES CONFIGURED** ✅" >> "$AUDIT_FILE"
             echo "" >> "$AUDIT_FILE"
             echo "- **Number of rules:** $RULES_COUNT" >> "$AUDIT_FILE"
-            echo "- **Default policy:** $(sudo iptables -L | grep "Chain INPUT" | awk '{print $4}')" >> "$AUDIT_FILE"
+            DEFAULT_POLICY=$(sudo iptables -L | grep "Chain INPUT" | awk '{print $4}')
+            echo "- **Default policy:** $DEFAULT_POLICY" >> "$AUDIT_FILE"
         else
             echo "### ⚠️ IPTables Status: **MINIMAL RULES**" >> "$AUDIT_FILE"
             SECURITY_SCORES[firewall_issues]=$((SECURITY_SCORES[firewall_issues] + 1))
         fi
-        
+
         echo "" >> "$AUDIT_FILE"
         echo "**Sample Rules (showing first 10):**" >> "$AUDIT_FILE"
-        echo '```' >> "$AUDIT_FILE"
+        echo "**Sample Rules:**" >> "$AUDIT_FILE"
         sudo iptables -L -n -v | head -20 >> "$AUDIT_FILE" 2>/dev/null
-        echo '```' >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
-        
     else
         echo "### ❌ No Firewall Detected" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
@@ -1556,7 +1583,11 @@ EOF
     # SUID Files Analysis
     echo "### SUID Executables (Elevated Privilege Files)" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    SUID_FILES=$(sudo find / -perm -4000 -type f 2>/dev/null | head -20)
+    if check_sudo_available; then
+        SUID_FILES=$(sudo find / -perm -4000 -type f 2>/dev/null | head -20)
+    else
+        SUID_FILES=""
+    fi
     if [ -n "$SUID_FILES" ]; then
         echo "| File Path | Expected | Risk Level | Action |" >> "$AUDIT_FILE"
         echo "|-----------|----------|------------|--------|" >> "$AUDIT_FILE"
@@ -1595,7 +1626,11 @@ EOF
     # World-Writable Files Analysis
     echo "### World-Writable Files (Security Risk)" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    WRITABLE_FILES=$(sudo find / -xdev -type f -perm -0002 2>/dev/null | head -15)
+    if check_sudo_available; then
+        WRITABLE_FILES=$(sudo find / -xdev -type f -perm -0002 2>/dev/null | head -15)
+    else
+        WRITABLE_FILES=""
+    fi
     if [ -n "$WRITABLE_FILES" ]; then
         echo "⚠️ **CRITICAL SECURITY RISK:** Found world-writable files:" >> "$AUDIT_FILE"
         echo "" >> "$AUDIT_FILE"
@@ -1675,9 +1710,13 @@ EOF
     # Failed login attempts analysis
     echo "### Failed Login Attempts Analysis" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
-    
+
     if [ -f /var/log/auth.log ]; then
-        FAILED_LOGINS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | tail -20)
+        if check_sudo_available; then
+            FAILED_LOGINS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | tail -20)
+        else
+            FAILED_LOGINS=""
+        fi
         if [ -n "$FAILED_LOGINS" ]; then
             echo "| Date | User | Source IP | Service |" >> "$AUDIT_FILE"
             echo "|------|------|-----------|---------|" >> "$AUDIT_FILE"
@@ -1697,7 +1736,11 @@ EOF
             echo "" >> "$AUDIT_FILE"
             
             # Count attempts by IP
-            ATTACKER_IPS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | grep -o "from [^ ]*" | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -5)
+            if check_sudo_available; then
+                ATTACKER_IPS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | grep -o "from [^ ]*" | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -5)
+            else
+                ATTACKER_IPS=""
+            fi
             if [ -n "$ATTACKER_IPS" ]; then
                 echo "| Source IP | Failed Attempts | Risk Level |" >> "$AUDIT_FILE"
                 echo "|-----------|-----------------|------------|" >> "$AUDIT_FILE"
@@ -1719,7 +1762,11 @@ EOF
             fi
             
             # Count attempts by username
-            TARGETED_USERS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | grep -o "for [^ ]*" | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -5)
+            if check_sudo_available; then
+                TARGETED_USERS=$(sudo grep "Failed password" /var/log/auth.log 2>/dev/null | grep -o "for [^ ]*" | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -5)
+            else
+                TARGETED_USERS=""
+            fi
             if [ -n "$TARGETED_USERS" ]; then
                 echo "" >> "$AUDIT_FILE"
                 echo "**Most Targeted Users:**" >> "$AUDIT_FILE"
@@ -1734,7 +1781,11 @@ EOF
         fi
         
     elif [ -f /var/log/secure ]; then
-        FAILED_LOGINS=$(sudo grep "Failed password" /var/log/secure 2>/dev/null | tail -20)
+        if check_sudo_available; then
+            FAILED_LOGINS=$(sudo grep "Failed password" /var/log/secure 2>/dev/null | tail -20)
+        else
+            FAILED_LOGINS=""
+        fi
         if [ -n "$FAILED_LOGINS" ]; then
             echo "| Date | User | Source IP | Service |" >> "$AUDIT_FILE"
             echo "|------|------|-----------|---------|" >> "$AUDIT_FILE"
@@ -1763,7 +1814,11 @@ EOF
     echo "### Recent Successful Logins" >> "$AUDIT_FILE"
     echo "" >> "$AUDIT_FILE"
     if [ -f /var/log/auth.log ]; then
-        SUCCESS_LOGINS=$(sudo grep "Accepted password" /var/log/auth.log 2>/dev/null | tail -10)
+        if check_sudo_available; then
+            SUCCESS_LOGINS=$(sudo grep "Accepted password" /var/log/auth.log 2>/dev/null | tail -10)
+        else
+            SUCCESS_LOGINS=""
+        fi
         if [ -n "$SUCCESS_LOGINS" ]; then
             echo "| Date | User | Source IP | Method |" >> "$AUDIT_FILE"
             echo "|------|------|-----------|--------|" >> "$AUDIT_FILE"
@@ -1865,8 +1920,13 @@ EOF
         
         # Update definitions first
         echo "**Updating rkhunter definitions...**" >> "$AUDIT_FILE"
-        sudo rkhunter --update > /dev/null 2>&1
-        if [ $? -eq 0 ]; then
+        if check_sudo_available; then
+            sudo rkhunter --update > /dev/null 2>&1
+            UPDATE_RESULT=$?
+        else
+            UPDATE_RESULT=1
+        fi
+        if [ $UPDATE_RESULT -eq 0 ]; then
             echo "✅ Definitions updated successfully" >> "$AUDIT_FILE"
         else
             echo "⚠️ Failed to update definitions" >> "$AUDIT_FILE"
@@ -1874,8 +1934,12 @@ EOF
         echo "" >> "$AUDIT_FILE"
         
         # Run scan and capture results
-        RKHUNTER_OUTPUT=$(sudo rkhunter --check --skip-keypress --report-warnings-only 2>&1)
-        
+        if check_sudo_available; then
+            RKHUNTER_OUTPUT=$(sudo rkhunter --check --skip-keypress --report-warnings-only 2>&1)
+        else
+            RKHUNTER_OUTPUT=""
+        fi
+
         # Analyze results
         if echo "$RKHUNTER_OUTPUT" | grep -q "Warning"; then
             echo "⚠️ **Warnings detected during scan**" >> "$AUDIT_FILE"
@@ -1931,8 +1995,12 @@ EOF
         echo "" >> "$AUDIT_FILE"
         
         # Run scan and capture results
-        CHKROOTKIT_OUTPUT=$(sudo chkrootkit 2>&1)
-        
+        if check_sudo_available; then
+            CHKROOTKIT_OUTPUT=$(sudo chkrootkit 2>&1)
+        else
+            CHKROOTKIT_OUTPUT=""
+        fi
+
         # Analyze results for infections
         INFECTED_COUNT=$(echo "$CHKROOTKIT_OUTPUT" | grep -c "INFECTED")
         SUSPICIOUS_COUNT=$(echo "$CHKROOTKIT_OUTPUT" | grep -c "WARNING\|suspicious")
@@ -1994,9 +2062,14 @@ EOF
         
         if command -v freshclam >/dev/null 2>&1; then
             echo "**Updating virus definitions...**" >> "$AUDIT_FILE"
-            FRESHCLAM_OUTPUT=$(sudo freshclam --quiet 2>&1)
-            UPDATE_STATUS=$?
-            
+            if check_sudo_available; then
+                FRESHCLAM_OUTPUT=$(sudo freshclam --quiet 2>&1)
+                UPDATE_STATUS=$?
+            else
+                FRESHCLAM_OUTPUT="Sudo not available"
+                UPDATE_STATUS=1
+            fi
+
             # Get current database version
             DB_VERSION=$(sigtool --info /var/lib/clamav/main.cvd 2>/dev/null | grep "Build time" || echo "Unknown")
             
